@@ -161,8 +161,41 @@ public class MarkdownFxRenderer {
         textFlow.getStyleClass().add("md-heading");
         textFlow.getStyleClass().add("md-heading-" + heading.getLevel());
         textFlow.setMaxWidth(Double.MAX_VALUE);
-        renderInlines(heading, textFlow, FontWeight.BOLD, BASE_FONT_SIZE);
+        // 标题字号/字重/颜色交由 CSS (md-heading-*) 控制，Java 端不 setFont，避免覆盖样式
+        renderHeadingInlines(heading, textFlow);
         return textFlow;
+    }
+
+    /**
+     * 标题内联渲染：Text 不显式 setFont，由 .md-heading-* 的 CSS 控制字号/字重/颜色，
+     * 让各级标题真正体现出层级差异。
+     */
+    private static void renderHeadingInlines(org.commonmark.node.Node parent, TextFlow textFlow) {
+        org.commonmark.node.Node child = parent.getFirstChild();
+        while (child != null) {
+            if (child instanceof org.commonmark.node.Text textNode) {
+                textFlow.getChildren().add(new Text(textNode.getLiteral()));
+            } else if (child instanceof StrongEmphasis) {
+                renderHeadingInlines(child, textFlow);
+            } else if (child instanceof Emphasis) {
+                renderHeadingInlines(child, textFlow);
+            } else if (child instanceof Code codeNode) {
+                Label codeLabel = new Label(codeNode.getLiteral());
+                codeLabel.getStyleClass().add("md-inline-code");
+                textFlow.getChildren().add(codeLabel);
+            } else if (child instanceof Link link) {
+                Hyperlink hyperlink = new Hyperlink();
+                hyperlink.getStyleClass().add("md-link");
+                hyperlink.setFocusTraversable(false);
+                hyperlink.setText(extractNodeText(link));
+                String dest = link.getDestination();
+                hyperlink.setOnAction(e -> openLink(dest));
+                textFlow.getChildren().add(hyperlink);
+            } else if (child instanceof SoftLineBreak || child instanceof HardLineBreak) {
+                textFlow.getChildren().add(new Text("\n"));
+            }
+            child = child.getNext();
+        }
     }
 
     private static Node renderFencedCodeBlock(FencedCodeBlock codeBlock) {

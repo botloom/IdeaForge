@@ -29,7 +29,7 @@ import java.util.Set;
  * 将选中记忆正文注入系统消息尾部。后续轮次不重复召回——首轮注入的背景持续生效，
  * 细粒度需求仍走 MemoryView 工具。
  *
- * <p>order 位于 {@link AutoMemoryToolsAdvisor}（工具注入）之后、
+ * <p>order 位于 {@link AgentMemoryAdvisor}（工具注入）之后、
  * {@link SessionMemoryAdvisor}（历史加载）之前。判断"首轮"的依据：本 advisor 的
  * before() 先于 SessionMemoryAdvisor 的持久化执行，此时 session 中若已有用户消息
  * 事件则说明非首轮。

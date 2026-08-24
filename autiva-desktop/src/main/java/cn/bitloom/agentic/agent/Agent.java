@@ -1,7 +1,6 @@
 package cn.bitloom.agentic.agent;
 
 import cn.bitloom.agentic.agent.advisor.HookAdvisor;
-import cn.bitloom.agentic.agent.advisor.LoggingAdvisor;
 import cn.bitloom.agentic.agent.advisor.SessionMemoryAdvisor;
 import cn.bitloom.agentic.event.AbstractEvent;
 import cn.bitloom.agentic.event.EventConverter;
@@ -205,7 +204,6 @@ public class Agent {
         private List<IAgentHook> hooks = new ArrayList<>();
         private List<Advisor> advisors = new ArrayList<>();
         private Consumer<String> reactiveCompactor;
-        private boolean enableLogging = true;
 
         public Builder name(String name) {
             this.name = name;
@@ -251,11 +249,6 @@ public class Agent {
             return this;
         }
 
-        public Builder logging(boolean enableLogging) {
-            this.enableLogging = enableLogging;
-            return this;
-        }
-
         public Agent build() {
             ChatClient.Builder builder = ChatClient.builder(this.model);
             if (StringUtils.isNotBlank(this.systemPrompt)) {
@@ -277,11 +270,6 @@ public class Agent {
                     }
                 }
                 builder.defaultTools(wrappedTools);
-            }
-            if (this.enableLogging) {
-                builder.defaultAdvisors(LoggingAdvisor.builder()
-                        .agentName(this.name)
-                        .build());
             }
             AutivaToolCallingManager toolCallingManager = new AutivaToolCallingManager(wrappedTools);
             builder.defaultAdvisors(

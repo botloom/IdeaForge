@@ -4,7 +4,7 @@ import cn.bitloom.agentic.agent.Agent;
 import cn.bitloom.agentic.agent.AgentDefinition;
 import cn.bitloom.agentic.agent.AgentDefinitionManager;
 import cn.bitloom.agentic.agent.RuntimeContext;
-import cn.bitloom.agentic.agent.advisor.AutoMemoryToolsAdvisor;
+import cn.bitloom.agentic.agent.advisor.AgentMemoryAdvisor;
 import cn.bitloom.agentic.agent.advisor.MemoryRecallAdvisor;
 import cn.bitloom.agentic.agent.advisor.SessionMemoryAdvisor;
 import cn.bitloom.agentic.hook.IAgentHook;
@@ -414,13 +414,13 @@ public class CronManager {
         Path memoriesDir = AppConstants.Memory.workMemoryDir();
         // 记忆自动化（cron 智能体）：选择式召回 + 整理触发器（提取 Hook 仅主智能体）
         FileSystemAgentMemoryStore memoryStore = new FileSystemAgentMemoryStore(memoriesDir);
-        AutoMemoryToolsAdvisor autoMemoryToolsAdvisor = AutoMemoryToolsAdvisor.builder()
+        AgentMemoryAdvisor agentMemoryAdvisor = AgentMemoryAdvisor.builder()
                 .memoryStore(memoryStore)
                 .memoriesRootDirectory(memoriesDir.toString())
                 .memoryConsolidationTrigger(
                         MemoryConsolidator.triggerWhen(memoryStore, MemoryConsolidator.DEFAULT_THRESHOLD))
                 .build();
-        advisors.add(autoMemoryToolsAdvisor);
+        advisors.add(agentMemoryAdvisor);
 
         advisors.add(MemoryRecallAdvisor.builder()
                 .sessionManager(fileSystemSessionManager)

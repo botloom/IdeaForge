@@ -232,6 +232,18 @@ public class SideBarController implements Initializable, PageHolder {
     }
 
     /**
+     * 判断当前 coder 首页选择的项目是否为指定项目（新建对话后 currentProject 仍指向该项目，
+     * 据此保持该项目卡片展开，避免刷新时误折叠）。
+     */
+    private boolean isCurrentCoderProject(ProjectInfo project) {
+        AbstractHomePageViewModel vm = currentViewModel();
+        if (vm instanceof CodeHomePageViewModel coderVm && coderVm.getCurrentProject() != null) {
+            return coderVm.getCurrentProject().id().equals(project.id());
+        }
+        return false;
+    }
+
+    /**
      * 切换智能体模式：切换 agent、重置聊天 UI 并导航回首页。
      */
     private void switchAgentMode(AgentMode mode) {
@@ -397,11 +409,13 @@ public class SideBarController implements Initializable, PageHolder {
         header.setOnMouseEntered(e -> { newChatBtn.setVisible(true); treeBtn.setVisible(true); });
         header.setOnMouseExited(e -> { newChatBtn.setVisible(false); treeBtn.setVisible(false); });
 
-        // session 列表容器（默认折叠；仅当前活跃会话所属项目默认为展开）
+        // session 列表容器（默认折叠）；以下情况默认展开：
+        // 1. 含当前活跃会话的项目；2. 新建对话时当前 coder 项目（currentProject）所属卡片保持展开
         VBox sessionList = new VBox();
         sessionList.getStyleClass().add("sidebar__project-sessions");
-        boolean isActiveProject = currentSessionId != null
-                && projectSessions.stream().anyMatch(s -> s.id().equals(currentSessionId));
+        boolean isActiveProject = (currentSessionId != null
+                && projectSessions.stream().anyMatch(s -> s.id().equals(currentSessionId)))
+                || isCurrentCoderProject(project);
         sessionList.setVisible(isActiveProject);
         sessionList.setManaged(isActiveProject);
 

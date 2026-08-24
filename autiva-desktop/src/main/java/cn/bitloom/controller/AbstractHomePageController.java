@@ -443,6 +443,12 @@ public abstract class AbstractHomePageController implements Initializable, Butto
         if (message.isBlank()) {
             return;
         }
+        // 斜杠命令拦截（子类实现）：命中命令就地执行，不发送给 agent
+        if (interceptSlashCommand(message)) {
+            this.sendField.clear();
+            this.tags.clear();
+            return;
+        }
         if (!this.chatListContainer.isVisible()) {
             this.animateToChatState();
         }
@@ -451,6 +457,15 @@ public abstract class AbstractHomePageController implements Initializable, Butto
         this.getViewModel().sendMessage(message);
         this.sendField.clear();
         this.tags.clear();
+    }
+
+    /**
+     * 斜杠命令拦截钩子。基类默认不拦截普通消息返回 false；
+     * 子类按其支持的命令集 override，命中命令就地执行并返回 true。
+     * 入参 {@code message} 为 tag 替换后的最终文本（命令 tag 已还原为命令原文）。
+     */
+    protected boolean interceptSlashCommand(String message) {
+        return false;
     }
 
     private void handleAddFile() {
@@ -493,11 +508,13 @@ public abstract class AbstractHomePageController implements Initializable, Butto
     }
 
     /**
-     * 在光标位置插入 tag 文字标记：⟦📄展示文本⟧ + 空格。
+     * 在光标位置插入 tag 文字标记：⟦icon展示文本⟧ + 空格。
      * 同时记录到 {@link #tags} 列表，发送时按顺序替换为 value。
+     * 命令 tag 用 ⚡ 前缀，文件/文本类 tag 用 📄 前缀。
      */
-    private void insertTag(InputTag tag) {
-        String marker = TAG_OPEN + "\uD83D\uDCC1" + tag.display() + TAG_CLOSE + " ";
+    protected void insertTag(InputTag tag) {
+        String glyph = InputTag.Type.COMMAND.equals(tag.type()) ? "⚡" : "\uD83D\uDCC1";
+        String marker = TAG_OPEN + glyph + tag.display() + TAG_CLOSE + " ";
         int pos = sendField.getCaretPosition();
         sendField.insertText(pos, marker);
         sendField.positionCaret(pos + marker.length());

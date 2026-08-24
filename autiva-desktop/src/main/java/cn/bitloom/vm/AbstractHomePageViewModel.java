@@ -4,7 +4,7 @@ import cn.bitloom.agentic.agent.Agent;
 import cn.bitloom.agentic.agent.AgentDefinition;
 import cn.bitloom.agentic.agent.AgentDefinitionManager;
 import cn.bitloom.agentic.agent.RuntimeContext;
-import cn.bitloom.agentic.agent.advisor.AutoMemoryToolsAdvisor;
+import cn.bitloom.agentic.agent.advisor.AgentMemoryAdvisor;
 import cn.bitloom.agentic.agent.advisor.MemoryRecallAdvisor;
 import cn.bitloom.agentic.agent.advisor.SessionMemoryAdvisor;
 import cn.bitloom.agentic.agent.advisor.SkillContextAdvisor;
@@ -480,13 +480,13 @@ public abstract class AbstractHomePageViewModel {
         // (a) 选择式召回——仅首轮注入相关记忆背景；(b) 回合提取 Hook——见下方 hooks；
         // (c) 整理触发器——文件数 ≥ 阈值时注入 reminder 并由 Hook 异步整理
         FileSystemAgentMemoryStore memoryStore = new FileSystemAgentMemoryStore(memoriesDir);
-        AutoMemoryToolsAdvisor autoMemoryToolsAdvisor = AutoMemoryToolsAdvisor.builder()
+        AgentMemoryAdvisor agentMemoryAdvisor = AgentMemoryAdvisor.builder()
                 .memoryStore(memoryStore)
                 .memoriesRootDirectory(memoriesDir.toString())
                 .memoryConsolidationTrigger(
                         MemoryConsolidator.triggerWhen(memoryStore, MemoryConsolidator.DEFAULT_THRESHOLD))
                 .build();
-        advisors.add(autoMemoryToolsAdvisor);
+        advisors.add(agentMemoryAdvisor);
 
         advisors.add(MemoryRecallAdvisor.builder()
                 .sessionManager(sessionManager)

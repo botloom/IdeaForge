@@ -84,49 +84,6 @@ public class AgentPageViewModel {
         }
     }
 
-    public void createAgent(String agentId) {
-        Path agentDir = AppConstants.Agents.agentDir(agentId);
-        if (Files.exists(agentDir)) {
-            throw new IllegalArgumentException("智能体已存在: " + agentId);
-        }
-
-        try {
-            Files.createDirectories(agentDir);
-
-            // 复制 work 模板
-            Path workDir = AppConstants.Agents.agentDir(AppConstants.Agents.WORK_AGENT);
-            if (Files.exists(workDir)) {
-                try (DirectoryStream<Path> stream = Files.newDirectoryStream(workDir)) {
-                    for (Path source : stream) {
-                        if (Files.isRegularFile(source)) {
-                            Path target = agentDir.resolve(source.getFileName());
-                            String content = Files.readString(source, StandardCharsets.UTF_8);
-                            // 替换名称
-                            if (source.getFileName().toString().equals("agent.md")) {
-                                content = content.replace("name: work", "name: " + agentId)
-                                        .replace("name: " + AppConstants.Agents.WORK_AGENT, "name: " + agentId);
-                            }
-                            Files.writeString(target, content, StandardCharsets.UTF_8);
-                        }
-                    }
-                }
-            } else {
-                // 创建最小模板
-                String agentMd = "---\nname: " + agentId + "\ndescription: 新智能体\nkind: main\n---\n";
-                Files.writeString(AppConstants.MainAgent.agentFile(agentId), agentMd, StandardCharsets.UTF_8);
-
-                String configJson = "{\"tools\":[],\"mcpServers\":{},\"skills\":[],\"subagents\":[]}";
-                Files.writeString(AppConstants.MainAgent.configFile(agentId), configJson, StandardCharsets.UTF_8);
-            }
-
-            // 重新加载定义
-            definitionManager.getOrLoadMainDefinition(agentId);
-        } catch (IOException e) {
-            log.error("创建智能体失败: {}", agentId, e);
-            throw new RuntimeException("创建智能体失败: " + e.getMessage(), e);
-        }
-    }
-
     public void deleteAgent(String agentId) {
         Path agentDir = AppConstants.Agents.agentDir(agentId);
         try {

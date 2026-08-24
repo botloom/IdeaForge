@@ -5,11 +5,7 @@
 <VBox fx:id="agentPage" styleClass="agent-page" maxWidth="800" maxHeight="Infinity"
       xmlns="http://javafx.com/javafx"
       xmlns:fx="http://javafx.com/fxml" fx:controller="cn.bitloom.controller.AgentPageController"
-      stylesheets="@../style/button-bar.css,@../style/agent-page.css">
+      stylesheets="@../style/agent-page.css">
 
-    <HBox styleClass="button-bar" VBox.vgrow="NEVER">
-        <Region HBox.hgrow="ALWAYS"/>
-        <Button styleClass="dynamic-btn" text="新建智能体" onAction="#onCreateAgent"/>
-    </HBox>
     <ListView fx:id="agentListView" VBox.vgrow="ALWAYS" styleClass="agent-page__list"/>
 </VBox>

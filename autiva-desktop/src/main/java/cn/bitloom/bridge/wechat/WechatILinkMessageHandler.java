@@ -4,7 +4,7 @@ import cn.bitloom.agentic.agent.Agent;
 import cn.bitloom.agentic.agent.AgentDefinition;
 import cn.bitloom.agentic.agent.AgentDefinitionManager;
 import cn.bitloom.agentic.agent.RuntimeContext;
-import cn.bitloom.agentic.agent.advisor.AutoMemoryToolsAdvisor;
+import cn.bitloom.agentic.agent.advisor.AgentMemoryAdvisor;
 import cn.bitloom.agentic.agent.advisor.SessionMemoryAdvisor;
 import cn.bitloom.agentic.event.MessageEvent;
 import cn.bitloom.agentic.model.ModelFactory;
@@ -144,10 +144,10 @@ public class WechatILinkMessageHandler {
         advisors.add(sessionMemoryAdvisor);
 
         Path memoriesDir = AppConstants.Memory.workMemoryDir();
-        AutoMemoryToolsAdvisor autoMemoryToolsAdvisor = AutoMemoryToolsAdvisor.builder()
+        AgentMemoryAdvisor agentMemoryAdvisor = AgentMemoryAdvisor.builder()
                 .memoriesRootDirectory(memoriesDir.toString())
                 .build();
-        advisors.add(autoMemoryToolsAdvisor);
+        advisors.add(agentMemoryAdvisor);
 
         List<ToolCallback> allTools = new ArrayList<>(toolkit.buildToolCallbacks(definition));
         allTools.addAll(Arrays.asList(MethodToolCallbackProvider.builder()

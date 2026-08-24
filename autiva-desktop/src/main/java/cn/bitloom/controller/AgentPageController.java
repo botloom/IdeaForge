@@ -148,28 +148,6 @@ public class AgentPageController implements Initializable, DialogHolder {
         return card;
     }
 
-    @FXML
-    private void onCreateAgent() {
-        windowManager.showDialog("cn/bitloom/view/AgentInputDialog.fxml",
-                agentPage.getScene().getWindow(),
-                controller -> {
-                    if (controller instanceof AgentInputDialogController inputController) {
-                        inputController.init("输入智能体名称", "", agentId -> {
-                            if (viewModel.agentExists(agentId)) {
-                                showWarning("智能体 \"" + agentId + "\" 已存在");
-                                return;
-                            }
-                            try {
-                                viewModel.createAgent(agentId);
-                                renderAgents();
-                            } catch (Exception e) {
-                                showError("创建智能体失败: " + e.getMessage());
-                            }
-                        });
-                    }
-                });
-    }
-
     private void deleteAgent(String agentId) {
         windowManager.showDialog("cn/bitloom/view/AgentConfirmDialog.fxml",
                 agentPage.getScene().getWindow(),

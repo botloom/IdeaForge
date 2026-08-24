@@ -24,7 +24,7 @@ import java.util.function.BiPredicate;
  * <p>注入记忆工具到智能体的工具列表中，允许智能体通过工具调用管理长期记忆。
  * 支持记忆整合触发器，在合适时机触发记忆合并和精简。
  */
-public class AutoMemoryToolsAdvisor implements BaseChatMemoryAdvisor {
+public class AgentMemoryAdvisor implements BaseChatMemoryAdvisor {
 
 	private static final String DEFAULT_MEMORY_SYSTEM_PROMPT = """
 			# 自动记忆
@@ -184,8 +184,8 @@ public class AutoMemoryToolsAdvisor implements BaseChatMemoryAdvisor {
 
 	private final BiPredicate<ChatClientRequest, Instant> memoryConsolidationTrigger;
 
-	private AutoMemoryToolsAdvisor(int order, String memorySystemPrompt, List<ToolCallback> memoryToolCallbacks,
-			BiPredicate<ChatClientRequest, Instant> memoryConsolidationTrigger) {
+	private AgentMemoryAdvisor(int order, String memorySystemPrompt, List<ToolCallback> memoryToolCallbacks,
+	                           BiPredicate<ChatClientRequest, Instant> memoryConsolidationTrigger) {
 		this.order = order;
 		this.memorySystemPrompt = memorySystemPrompt;
 		this.memoryToolCallbacks = memoryToolCallbacks;
@@ -289,7 +289,7 @@ public class AutoMemoryToolsAdvisor implements BaseChatMemoryAdvisor {
 			return this;
 		}
 
-		public AutoMemoryToolsAdvisor build() {
+		public AgentMemoryAdvisor build() {
 
 			Assert.hasText(this.memoriesRootDirectory, "Memories root directory must not be empty");
 
@@ -315,7 +315,7 @@ public class AutoMemoryToolsAdvisor implements BaseChatMemoryAdvisor {
 			String memorySystemPromptText = this.memorySystemPrompt.replace("{MEMORIES_ROOT_DIRECTORY}",
 					this.memoriesRootDirectory);
 
-			return new AutoMemoryToolsAdvisor(this.order, memorySystemPromptText, memoryToolCallbacks,
+			return new AgentMemoryAdvisor(this.order, memorySystemPromptText, memoryToolCallbacks,
 					this.memoryConsolidationTrigger);
 		}
 

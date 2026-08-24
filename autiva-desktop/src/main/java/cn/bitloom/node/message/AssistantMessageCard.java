@@ -184,6 +184,8 @@ public class AssistantMessageCard extends MessageCard {
     /**
      * 执行节流式 UI 更新：更新 streamingText、请求布局、通知外部重排。
      * 若流式已结束（complete 后残留的 pending flush），直接跳过。
+     * 流式期间保持纯文本输出（无 Markdown 重建，避免逐 chunk 闪烁），
+     * 结构完整的 Markdown 在流式结束时由 renderMarkdown 统一渲染。
      */
     private void flushStreamingText() {
         if (!isStreamingActive) {

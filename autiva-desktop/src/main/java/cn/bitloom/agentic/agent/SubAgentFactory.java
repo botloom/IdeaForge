@@ -1,6 +1,6 @@
 package cn.bitloom.agentic.agent;
 
-import cn.bitloom.agentic.agent.advisor.AutoMemoryToolsAdvisor;
+import cn.bitloom.agentic.agent.advisor.AgentMemoryAdvisor;
 import cn.bitloom.agentic.agent.advisor.MemoryRecallAdvisor;
 import cn.bitloom.agentic.agent.advisor.SessionMemoryAdvisor;
 import cn.bitloom.agentic.agent.advisor.SkillContextAdvisor;
@@ -124,7 +124,7 @@ public class SubAgentFactory {
 
         Path memoriesDir = resolveMemoriesDir(parentSession.id());
         FileSystemAgentMemoryStore memoryStore = new FileSystemAgentMemoryStore(memoriesDir);
-        advisors.add(AutoMemoryToolsAdvisor.builder()
+        advisors.add(AgentMemoryAdvisor.builder()
                 .memoryStore(memoryStore)
                 .memoriesRootDirectory(memoriesDir.toString())
                 .memoryConsolidationTrigger(

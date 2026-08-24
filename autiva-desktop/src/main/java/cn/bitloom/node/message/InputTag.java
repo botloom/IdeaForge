@@ -9,12 +9,13 @@ import java.nio.file.Path;
 /**
  * 输入框 tag 数据模型。
  *
- * <p>表示对话框输入框中以 tag 形式展示的附加内容，支持三种来源：
+ * <p>表示对话框输入框中以 tag 形式展示的附加内容，支持多种来源：
  * <ul>
  *   <li>{@link Type#FILE}：从文件树/Diff 列表拖拽的文件，value 为绝对路径</li>
  *   <li>{@link Type#FILE_REF}：从文件编辑器拖拽的选中文本片段，value 形如
  *       {@code "filePath 第X行-第Y行"}，与原右键菜单行为一致</li>
  *   <li>{@link Type#TEXT}：从终端/Diff 等无法定位文件的区域拖拽的纯文本</li>
+ *   <li>{@link Type#COMMAND}：斜杠命令选中后以 tag 形式展示，value 为命令原文</li>
  * </ul>
  *
  * <p>{@code display} 为 tag 上展示的简短文本，{@code value} 为发送消息时拼接的原文。
@@ -26,7 +27,10 @@ import java.nio.file.Path;
  */
 public record InputTag(Type type, String display, String value, String iconPath) {
 
-    public enum Type { FILE, FILE_REF, TEXT }
+    /** 斜杠命令 tag 图标（闪电）。 */
+    private static final String COMMAND_ICON_PATH = "/cn/bitloom/images/lightning.svg";
+
+    public enum Type { FILE, FILE_REF, TEXT, COMMAND }
 
     /**
      * 文件引用自定义 MIME 类型，用于拖拽源/目标之间传递
@@ -100,6 +104,18 @@ public record InputTag(Type type, String display, String value, String iconPath)
             display = display.substring(0, 24) + "…";
         }
         return new InputTag(Type.TEXT, display, text, FileIconResolver.textSnippetIconPath());
+    }
+
+    /**
+     * 斜杠命令 tag（来自输入框命令自动补全弹窗选择）。
+     *
+     * <p>display 与 value 均为命令原文，发送时经 tag 替换还原为命令文本。
+     * 图标用闪电 SVG 呼应命令语义。
+     *
+     * @param command 命令原文，如 {@code /plan}
+     */
+    public static InputTag forCommand(String command) {
+        return new InputTag(Type.COMMAND, command, command, COMMAND_ICON_PATH);
     }
 
     /**

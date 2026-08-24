@@ -4,8 +4,10 @@ import cn.bitloom.agentic.tool.file.DiffService;
 import cn.bitloom.agentic.tool.file.FileDiff;
 import cn.bitloom.bridge.desktop.ToolUIBridge;
 import cn.bitloom.constant.AgentMode;
-import cn.bitloom.project.ProjectInfo;
+import cn.bitloom.node.SlashCommandPopup;
+import cn.bitloom.node.message.InputTag;
 import cn.bitloom.holder.ButtonBarHolder;
+import cn.bitloom.project.ProjectInfo;
 import cn.bitloom.store.Store;
 import cn.bitloom.vm.AbstractHomePageViewModel;
 import cn.bitloom.vm.CodeHomePageViewModel;
@@ -56,10 +58,6 @@ public class CodeHomePageController extends AbstractHomePageController {
     @FXML
     private VBox approvalBar;
     @FXML
-    private Button goalButton;
-    @FXML
-    private Button planButton;
-    @FXML
     private MenuButton projectSelectButton;
     @FXML
     private Button branchDisplayButton;
@@ -69,15 +67,14 @@ public class CodeHomePageController extends AbstractHomePageController {
 
     private boolean diffReviewExpanded = false;
 
-    /**
-     * Goal 目标待输入状态：点击 Goal 按钮后进入，直接在输入框输入目标描述并回车即设置，不弹窗。
-     */
-    private boolean goalInputPending = false;
+    /** 斜杠命令：设置目标。用法：/goal 描述 */
+    private static final String CMD_GOAL = "/goal";
+    /** 斜杠命令：清除当前目标。用法：/clear-goal */
+    private static final String CMD_CLEAR_GOAL = "/clear-goal";
+    /** 斜杠命令：切换计划模式。用法：/plan */
+    private static final String CMD_PLAN = "/plan";
 
-    /** Goal 目标输入引导提示文案。 */
-    private static final String GOAL_INPUT_PROMPT =
-            "输入目标描述（结束状态 + 验证方式 + 限制条件），回车设置目标...";
-
+    private SlashCommandPopup slashPopup;
 
     public CodeHomePageController(ToolUIBridge toolUIBridge,
                                   WindowManager windowManager,
@@ -89,33 +86,10 @@ public class CodeHomePageController extends AbstractHomePageController {
     }
 
     /**
-     * goal 按钮 toggle：进入目标输入模式（无论是否已有目标，输入新内容回车即覆盖）；再点退出。
-     */
-    private void handleGoalButton() {
-        if (goalInputPending) {
-            exitGoalInput();
-            return;
-        }
-        // 互斥：进入目标待输入前先关闭计划模式（goal 与 plan 二选一）
-        if (Boolean.TRUE.equals(this.viewModel.planModeProperty().get())) {
-            this.viewModel.togglePlanMode();
-        }
-        // 不弹窗：进入目标待输入模式，在输入框中直接输入目标描述并回车设置
-        goalInputPending = true;
-        sendField.clear();
-        updateSendFieldPrompt();
-        updateModeButtonState();
-        sendField.requestFocus();
-        sendField.requestLayout();
-    }
-
-    /**
-     * 统一计算输入框提示文案：目标待输入 > 计划模式 > 默认。
+     * 统一计算输入框提示文案：计划模式 > 默认。Goal/Plan 改为斜杠命令后无独立待输入状态。
      */
     private void updateSendFieldPrompt() {
-        if (goalInputPending) {
-            sendField.setPromptText(GOAL_INPUT_PROMPT);
-        } else if (Boolean.TRUE.equals(this.viewModel.planModeProperty().get())) {
+        if (Boolean.TRUE.equals(this.viewModel.planModeProperty().get())) {
             sendField.setPromptText("描述你的任务，呆芽将只读调研并制定计划...");
         } else {
             sendField.setPromptText("给呆芽发消息...");
@@ -124,51 +98,95 @@ public class CodeHomePageController extends AbstractHomePageController {
     }
 
     /**
-     * 退出目标待输入状态并恢复提示。
-     */
-    private void exitGoalInput() {
-        goalInputPending = false;
-        updateSendFieldPrompt();
-        updateModeButtonState();
-    }
-
-    /**
-     * 发送拦截：目标待输入状态下，输入内容作为目标设置而非普通消息发送。
+     * 斜杠命令拦截钩子（基类 handleSendMessage 中，tag 替换后调用）：
+     * 识别 /goal、/clear-goal、/plan 并就地执行，不转发给 agent。
      */
     @Override
-    protected void handleSendMessage() {
-        if (goalInputPending) {
-            String text = sendField.getText().trim();
-            if (!text.isBlank()) {
-                goalInputPending = false;
-                sendField.clear();
-                this.viewModel.setGoal(text);
-            }
-            return;
-        }
-        super.handleSendMessage();
+    protected boolean interceptSlashCommand(String message) {
+        return handleSlashCommand(message);
     }
 
     /**
-     * 更新 goal / plan 按钮状态：选中项目后启用，激活/开启时高亮（Apple 蓝选中态）。
+     * 解析并执行斜杠命令。命中命令返回 true，否则返回 false。
      */
-    private void updateModeButtonState() {
-        boolean projectReady = this.viewModel.getCurrentProject() != null;
-        this.goalButton.setDisable(!projectReady);
-        this.planButton.setDisable(!projectReady);
-        // goal 高亮：目标待输入中或目标已激活时均显示选中态
-        boolean goalOn = this.viewModel.goalActiveProperty().get() || goalInputPending;
-        boolean planOn = this.viewModel.planModeProperty().get();
-        this.goalButton.getStyleClass().remove("home-page__mode-btn--active");
-        if (goalOn) {
-            this.goalButton.getStyleClass().add("home-page__mode-btn--active");
+    private boolean handleSlashCommand(String text) {
+        if (text.equalsIgnoreCase(CMD_PLAN)) {
+            this.viewModel.togglePlanMode();
+            return true;
         }
-        this.planButton.getStyleClass().remove("home-page__mode-btn--active");
-        if (planOn) {
-            this.planButton.getStyleClass().add("home-page__mode-btn--active");
+        if (text.equalsIgnoreCase(CMD_CLEAR_GOAL)) {
+            this.viewModel.clearGoal();
+            return true;
         }
-        // 未选择项目时同时锁死输入框（编码模式必须有工作目录才能发消息）
-        refreshSendInputDisabled();
+        if (text.toLowerCase().startsWith(CMD_GOAL + " ") || text.equalsIgnoreCase(CMD_GOAL)) {
+            String description = text.substring(CMD_GOAL.length()).trim();
+            if (description.isBlank()) {
+                Store.warnMessage.set("请为目标描述附加内容，例如：/goal 完成登录功能并验证");
+                return true;
+            }
+            this.viewModel.setGoal(description);
+            return true;
+        }
+        return false;
+    }
+
+    /**
+     * 初始化斜杠命令自动补全弹窗：输入以 "/" 开头（且不含空格）时，
+     * 在输入框上方弹出候选命令列表，↑/↓ 选择、回车回填命令到输入框。
+     */
+    private void setupSlashCommandPopup() {
+        slashPopup = new SlashCommandPopup(cmd -> {
+            // 先删除触发弹窗时已输入的斜杠前缀（如只输入了 "/"），避免残留多余斜杠
+            int prefixLen = Math.min(sendField.getCaretPosition(), sendField.getLength());
+            if (prefixLen > 0) {
+                sendField.deleteText(0, prefixLen);
+            }
+            // 以命令 tag 形式插入输入框（⟦⚡/plan⟧），发送时经 tag 替换还原为命令原文
+            insertTag(InputTag.forCommand(cmd.trim()));
+        });
+        slashPopup.setCommands(List.of(
+                new SlashCommandPopup.CommandOption(CMD_GOAL + " ", "设置目标（结束状态+验证方式+限制条件）"),
+                new SlashCommandPopup.CommandOption(CMD_CLEAR_GOAL, "清除当前目标"),
+                new SlashCommandPopup.CommandOption(CMD_PLAN, "切换计划模式")
+        ));
+
+        // 文本变化：以 "/" 开头（且不含空格）时弹出候选以匹配前缀，否则隐藏。
+        // 命令 tag 插入后文本以 ⟦ 开头，不会误触发。
+        sendField.textProperty().addListener((obs, oldVal, newVal) -> {
+            String text = (newVal == null) ? "" : newVal.trim();
+            if (text.startsWith("/") && !text.contains(" ")) {
+                slashPopup.show(sendField, text);
+            } else {
+                slashPopup.hide();
+            }
+        });
+
+        // 键盘拦截：弹窗可见时 ↑/↓ 选择、回车回填（阻止发送）、Esc 隐藏
+        sendField.addEventFilter(javafx.scene.input.KeyEvent.KEY_PRESSED, e -> {
+            if (!slashPopup.isShowing()) {
+                return;
+            }
+            switch (e.getCode()) {
+                case UP -> {
+                    slashPopup.moveUp();
+                    e.consume();
+                }
+                case DOWN -> {
+                    slashPopup.moveDown();
+                    e.consume();
+                }
+                case ENTER -> {
+                    slashPopup.confirm();
+                    e.consume();
+                }
+                case ESCAPE -> {
+                    slashPopup.hide();
+                    e.consume();
+                }
+                default -> {
+                }
+            }
+        });
     }
 
     /**
@@ -237,26 +255,17 @@ public class CodeHomePageController extends AbstractHomePageController {
             }
         });
 
-        // Goal / Plan 模式按钮（toggle）：点击开启，再点击关闭；选中态高亮
-        this.goalButton.setOnAction(e -> handleGoalButton());
-        this.planButton.setOnAction(e -> this.viewModel.togglePlanMode());
-        // 互斥：进入计划模式时退出目标待输入状态；任何变化都刷新按钮态与输入提示
-        this.viewModel.planModeProperty().addListener((obs, oldVal, newVal) -> {
-            if (Boolean.TRUE.equals(newVal)) {
-                exitGoalInput();
-            } else {
-                updateSendFieldPrompt();
-            }
-            updateModeButtonState();
-        });
-        this.viewModel.goalActiveProperty().addListener((obs, oldVal, newVal) -> {
-            updateModeButtonState();
-            updateSendFieldPrompt();
-        });
-        // 项目选中前禁用（FXML 初始 disable=true），选中项目后启用
+        // Goal/Plan 改为斜杠命令（/goal、/clear-goal、/plan）后在输入框触发，无需按钮。
+        // 监听模式状态：计划模式/goal 激活切换时刷新输入提示，项目切换时刷新输入锁定态
+        this.viewModel.planModeProperty().addListener((obs, oldVal, newVal) ->
+                updateSendFieldPrompt());
+        this.viewModel.goalActiveProperty().addListener((obs, oldVal, newVal) ->
+                updateSendFieldPrompt());
         this.viewModel.currentProjectProperty().addListener((obs, oldVal, newVal) ->
-                updateModeButtonState());
-        updateModeButtonState();
+                refreshSendInputDisabled());
+        refreshSendInputDisabled();
+
+        setupSlashCommandPopup();
 
         // diff 审查条按钮事件
         this.diffReviewHeader.setOnMouseClicked(e -> {
