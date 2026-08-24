@@ -1,7 +1,5 @@
 package cn.bitloom.agentic.tool.file;
 
-import cn.bitloom.agentic.event.DiffEvent;
-import cn.bitloom.agentic.event.EventPublisher;
 import cn.bitloom.agentic.tool.AbstractTool;
 import cn.bitloom.agentic.tool.ToolResult;
 import lombok.extern.slf4j.Slf4j;
@@ -26,14 +24,11 @@ import java.util.Map;
 public class WriteTool extends AbstractTool<WriteTool.Input> {
 
 	private static final String DESCRIPTION = """
-			将文件写入磁盘，覆盖已有文件。编辑现有文件前必须先 Read。优先编辑现有文件。不要主动创建文档文件(*.md/README)。
-			""";
+		将文件写入磁盘，覆盖已有文件。编辑现有文件前必须先 Read。优先编辑现有文件。不要主动创建文档文件(*.md/README)。
+		""";
 
-	private final DiffGenerator diffGenerator;
-
-	private WriteTool(DiffGenerator diffGenerator) {
+	private WriteTool() {
 		super("Write", DESCRIPTION, Input.class);
-		this.diffGenerator = diffGenerator;
 	}
 
 	public record Input(
@@ -60,23 +55,9 @@ public class WriteTool extends AbstractTool<WriteTool.Input> {
 				}
 			}
 
-			String oldContent = fileExists
-					? Files.readString(path, StandardCharsets.UTF_8)
-					: null;
-
 			try (BufferedWriter writer = Files.newBufferedWriter(path, StandardCharsets.UTF_8,
 					StandardOpenOption.TRUNCATE_EXISTING, StandardOpenOption.CREATE)) {
 				writer.write(content);
-			}
-
-			// 写入后生成 diff 并通过 EventPublisher 推送 DiffEvent（非阻塞，失败不影响写入结果）
-			if (diffGenerator != null) {
-				try {
-					FileDiff fileDiff = diffGenerator.generateDiff(path, oldContent, content);
-					publishDiffEvent(context, fileDiff);
-				} catch (Exception e) {
-					log.warn("生成 Diff 失败（不影响写入）: {}", filePath, e);
-				}
 			}
 
 			String message = String.format("已%s %s（%d字节）", action, filePath, content.length());
@@ -102,39 +83,9 @@ public class WriteTool extends AbstractTool<WriteTool.Input> {
 	}
 
 	public static class Builder {
-		private DiffGenerator diffGenerator;
-
-		public Builder diffGenerator(DiffGenerator diffGenerator) {
-			this.diffGenerator = diffGenerator;
-			return this;
-		}
 
 		public WriteTool build() {
-			return new WriteTool(diffGenerator);
+			return new WriteTool();
 		}
 	}
-
-	/**
-	 * 从 ToolContext 获取 EventPublisher 和 sessionId，推送 DiffEvent 到 agent 事件流。
-	 * eventSink 或 sessionId 为 null 时跳过（work 模式无 diff 或测试场景）。
-	 */
-	private static void publishDiffEvent(ToolContext context, FileDiff fileDiff) {
-		if (context == null || fileDiff == null) return;
-		Object sinkObj = context.getContext().get("eventSink");
-		Object sessionIdObj = context.getContext().get("sessionId");
-		if (sinkObj instanceof EventPublisher publisher && sessionIdObj instanceof String sessionId) {
-			try {
-				publisher.publish(DiffEvent.of(sessionId, fileDiff));
-			} catch (Exception e) {
-				log.warn("推送 DiffEvent 失败（不影响写入）: {}", fileDiff.filePath(), e);
-			}
-		}
-	}
-
-	private static String extractString(ToolContext context, String key) {
-		if (context == null || context.getContext() == null) return null;
-		Object v = context.getContext().get(key);
-		return v instanceof String s ? s : null;
-	}
-
 }

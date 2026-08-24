@@ -126,18 +126,46 @@ public class CoderEditorPanelController extends EditorPanelController implements
         fileContent.getStyleClass().add("editor-panel__view");
         VBox.setVgrow(fileContent, Priority.ALWAYS);
 
+        // 读取未完成前先展示「正在加载…」占位，避免大文件异步读取期间出现空白
+        fileContent.getChildren().setAll(createLoadingContent(fileName));
+
         SubTabContainer.SubTab subTab = container.addSubTab(fileName, fileContent);
         subTab.userData.put("path", pathKey);
 
-        try {
-            String content = Files.readString(filePath);
+        // 文件读取与 git 行级 diff 计算均含磁盘/跨进程 IO，移到后台线程执行，
+        // 完成后切回 FX 线程构建编辑器与高亮，避免打开大文件时阻塞 UI。
+        Thread loader = new Thread(() -> {
+            String content;
+            Map<Integer, GitFileStatus> lineStatus;
+            try {
+                content = Files.readString(filePath);
+                lineStatus = computeLineStatus(filePath);
+            } catch (IOException e) {
+                log.warn("读取文件失败: {}", filePath, e);
+                content = null;
+                lineStatus = Map.of();
+                Platform.runLater(() ->
+                        fileContent.getChildren().setAll(createErrorContent("读取文件失败: " + e.getMessage(), null)));
+                return;
+            }
+            final String loaded = content;
+            final Map<Integer, GitFileStatus> loadedStatus = lineStatus;
+            Platform.runLater(() -> buildCodeArea(filePath, subTab, fileContent, loaded, loadedStatus));
+        }, "autiva-file-load");
+        loader.setDaemon(true);
+        loader.start();
+    }
 
+    /** 在 FX 线程构建代码编辑器（文本已由后台线程读取完成）。 */
+    private void buildCodeArea(Path filePath, SubTabContainer.SubTab subTab, VBox fileContent,
+                               String content, Map<Integer, GitFileStatus> lineStatus) {
+        try {
             CodeArea codeArea = new CodeArea();
             codeArea.setEditable(true);
             codeArea.setShowCaret(Caret.CaretVisibility.ON);
             // 行号处按 Git 改动着色：存入可变行状态引用，外部刷新时仅换引用并重绘
             AtomicReference<Map<Integer, GitFileStatus>> lineStatusRef =
-                    new AtomicReference<>(computeLineStatus(filePath));
+                    new AtomicReference<>(lineStatus.isEmpty() ? Map.of() : lineStatus);
             subTab.userData.put("lineStatus", lineStatusRef);
             // 支持 Ctrl + 滚轮缩放代码（正文 + 行号联动），默认 12px
             SimpleDoubleProperty codeFontSize = new SimpleDoubleProperty(12.0);
@@ -178,9 +206,6 @@ public class CoderEditorPanelController extends EditorPanelController implements
             Platform.runLater(codeArea::requestFocus);
             setupCodeAreaContextMenu(codeArea, filePath);
             subscribeStatusRefresh();
-        } catch (IOException e) {
-            log.warn("读取文件失败: {}", filePath, e);
-            fileContent.getChildren().setAll(createErrorContent("读取文件失败: " + e.getMessage(), null));
         } catch (Exception e) {
             log.error("显示文件内容失败: {}", filePath, e);
             fileContent.getChildren().setAll(createErrorContent("显示文件内容失败: " + e.getMessage(), null));
@@ -287,15 +312,19 @@ public class CoderEditorPanelController extends EditorPanelController implements
     private void applyGitParaStyles(CodeArea codeArea, AtomicReference<Map<Integer, GitFileStatus>> lineStatusRef) {
         int paraCount = codeArea.getParagraphs().size();
         Map<Integer, GitFileStatus> map = lineStatusRef.get();
+        // 仅当段落样式需要变更时才调用 setParagraphStyle（有状态行>应用样式，
+        // 无状态行>清空残留），对绝大多数无改动行不触发样式操作，
+        // 避免大文件打开/刷新时对每一行都调用 setParagraphStyle 导致卡顿。
+        var paragraphs = codeArea.getParagraphs();
         for (int i = 0; i < paraCount; i++) {
             GitFileStatus st = map.get(i);
-            String style = null;
             if (st == GitFileStatus.ADDED) {
-                style = "git-para--added";
+                codeArea.setParagraphStyle(i, List.of("git-para--added"));
             } else if (st == GitFileStatus.MODIFIED) {
-                style = "git-para--modified";
+                codeArea.setParagraphStyle(i, List.of("git-para--modified"));
+            } else if (!paragraphs.isEmpty() && !paragraphs.get(i).getParagraphStyle().isEmpty()) {
+                codeArea.setParagraphStyle(i, List.of());
             }
-            codeArea.setParagraphStyle(i, style == null ? List.of() : List.of(style));
         }
     }
 
@@ -444,6 +473,15 @@ public class CoderEditorPanelController extends EditorPanelController implements
     }
 
     // ===== 加载与错误状态 =====
+
+    /** 异步读取文件期间的「正在加载…」占位内容，避免大文件打开时出现空白。 */
+    private VBox createLoadingContent(String fileName) {
+        Label loadLabel = new Label("正在加载 " + fileName + " …");
+        loadLabel.getStyleClass().add("editor-panel__loading-text");
+        VBox box = new VBox(loadLabel);
+        box.setAlignment(Pos.CENTER);
+        return box;
+    }
 
     private VBox createErrorContent(String message, Runnable retryAction) {
         Label errorLabel = new Label(message);

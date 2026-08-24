@@ -5,19 +5,21 @@ import cn.bitloom.agentic.agent.AgentDefinition;
 import cn.bitloom.agentic.agent.AgentDefinitionManager;
 import cn.bitloom.agentic.agent.RuntimeContext;
 import cn.bitloom.agentic.agent.advisor.AgentMemoryAdvisor;
+import cn.bitloom.agentic.agent.advisor.EnvironmentAdvisor;
 import cn.bitloom.agentic.agent.advisor.MemoryRecallAdvisor;
 import cn.bitloom.agentic.agent.advisor.SessionMemoryAdvisor;
 import cn.bitloom.agentic.agent.advisor.SkillContextAdvisor;
 import cn.bitloom.agentic.agent.advisor.SubagentContextAdvisor;
 import cn.bitloom.agentic.event.AbstractEvent;
 import cn.bitloom.agentic.event.CompactionEvent;
-import cn.bitloom.agentic.event.DiffEvent;
 import cn.bitloom.agentic.event.MessageEvent;
+import cn.bitloom.agentic.event.UICardEvent;
 import cn.bitloom.agentic.hook.IAgentHook;
 import cn.bitloom.agentic.hook.MemoryExtractionHook;
 import cn.bitloom.agentic.hook.PermissionHook;
 import cn.bitloom.agentic.hook.TodoReminderHook;
 import cn.bitloom.agentic.hook.ToolCallBudgetHook;
+import cn.bitloom.agentic.hook.ToolCardEventHook;
 import cn.bitloom.agentic.hook.ToolResultOffloadHook;
 import cn.bitloom.agentic.memory.FileSystemAgentMemoryStore;
 import cn.bitloom.agentic.memory.MemoryConsolidator;
@@ -36,6 +38,7 @@ import cn.bitloom.agentic.tool.session.CrossSessionSearchTool;
 import cn.bitloom.constant.AgentMode;
 import cn.bitloom.constant.AppConstants;
 import cn.bitloom.node.message.*;
+import cn.bitloom.node.tool.ToolCallCard;
 import cn.bitloom.project.ProjectInfo;
 import cn.bitloom.store.Store;
 import javafx.application.Platform;
@@ -88,6 +91,9 @@ public abstract class AbstractHomePageViewModel {
             "TodoWrite", "AskUserQuestion",
             "ConversationSearch", "CrossSessionSearch");
 
+    /** Task（子智能体）工具名：由 ToolUIBridge 单独渲染 TaskCard，不参与 ToolCallCard 组。 */
+    private static final String TASK_TOOL_NAME = "Task";
+
     protected final FileSystemSessionManager sessionManager;
     protected final AgentDefinitionManager definitionManager;
     protected final ModelFactory modelFactory;
@@ -103,10 +109,6 @@ public abstract class AbstractHomePageViewModel {
     private final ObservableList<MessageCard> messages = FXCollections.observableArrayList();
 
     protected Session session;
-
-    /** Diff 事件处理器（Coder 模式注入，Work 模式为 null） */
-    @Setter
-    protected Consumer<DiffEvent> diffHandler;
 
     /** per-session Agent 缓存：sessionId → Agent 实例，session 级生命周期，销毁时移除 */
     private final Map<String, Agent> sessionAgents = new ConcurrentHashMap<>();
@@ -167,6 +169,12 @@ public abstract class AbstractHomePageViewModel {
         Disposable subscription;
         /** 当前流式 assistant 消息卡片 */
         AssistantMessageCard currentAssistantCard = null;
+        /** 当前正在累积的工具调用组卡片（同一轮 AI 话语后的连续工具聚合为一组） */
+        cn.bitloom.node.tool.ToolCallCard currentToolGroup = null;
+        /** 下一条 assistant 话语结束后，工具调用应新起一组（新一轮 AI 表达） */
+        boolean needNewToolGroup = true;
+        /** 当前工具组内尚未完成（COMPLETED/FAILED）的工具调用 id */
+        final java.util.Set<String> activeToolCallIds = new java.util.HashSet<>();
         /** 是否正在流式生成（per-session） */
         volatile boolean isStreaming = false;
         /** 是否暂停（per-session） */
@@ -490,6 +498,7 @@ public abstract class AbstractHomePageViewModel {
                 .definitionManager(definitionManager)
                 .definition(definition)
                 .build());
+        advisors.add(EnvironmentAdvisor.builder().build());
 
         List<ToolCallback> allTools = new ArrayList<>(toolkit.buildToolCallbacks(definition));
         allTools.add(ConversationSearchTool.builder(sessionManager).build().toToolCallback());
@@ -511,6 +520,7 @@ public abstract class AbstractHomePageViewModel {
         hooks.add(new ToolCallBudgetHook(configManager.getMaxToolCalls()));
         hooks.add(new PermissionHook(approvalStrategies));
         hooks.add(new TodoReminderHook());
+        hooks.add(new ToolCardEventHook());
         hooks.add(new ToolResultOffloadHook());
         // 记忆自动化 (b)：回合结束异步提取长期记忆（仅主智能体，用户交互入口）
         hooks.add(MemoryExtractionHook.builder()
@@ -800,7 +810,7 @@ public abstract class AbstractHomePageViewModel {
     // ===== 事件处理 =====
 
     /**
-     * 处理事件流中的事件（可能是 MessageEvent / CompactionEvent / DiffEvent）。
+     * 处理事件流中的事件（可能是 MessageEvent / CompactionEvent / UICardEvent）。
      * 按 sessionId 路由到对应 state：active session 同时更新 UI messages 与 savedMessages，
      * 非 active session 只更新 savedMessages（不污染 UI）。
      */
@@ -818,13 +828,95 @@ public abstract class AbstractHomePageViewModel {
             CompactionCard card = new CompactionCard(ce.getArchivedCount(), ce.getActiveCount());
             if (isActive) messages.add(card);
             state.savedMessages.add(card);
-        } else if (event instanceof DiffEvent diffEvent) {
-            // Diff 事件仅在 active session 推送（非 active 丢弃，避免污染 EditorPanel）
-            if (isActive && diffHandler != null) {
-                diffHandler.accept(diffEvent);
-            }
+        } else if (event instanceof UICardEvent uiCardEvent) {
+            handleUICardEvent(uiCardEvent, state, isActive);
         }
     }
+
+    /**
+     * 消费 UICardEvent：工具调用卡片（TOOL_CARD）由 ToolCardEventHook 发布。
+     * <p>
+     * CREATED 充当"助手流式结束"信号 — 结束当前流式文本卡片，并把该调用加入当前的
+     * 工具调用组卡片（同一轮 AI 话语后的连续工具聚合为一组）；若无当前组或刚开启新话语，
+     * 则新建一组卡片并以展开态显示执行中。
+     * COMPLETED/FAILED 标记该调用完成，组内调用全部结束时折叠卡片。
+     */
+    private void handleUICardEvent(UICardEvent event, SessionRuntimeState state, boolean isActive) {
+        if (event.getType() != UICardEvent.Type.TOOL_CARD) {
+            return;
+        }
+        String callId = event.getCardId();
+        String toolName = event.getToolName();
+        switch (event.getStatus()) {
+            case CREATED -> handleToolCallCreated(event, state, isActive, callId);
+            case COMPLETED -> handleToolCallFinished(state, isActive, callId, toolName);
+            case FAILED -> handleToolCallFinished(state, isActive, callId, toolName);
+            default -> { }
+        }
+    }
+
+    /** 工具调用开始：结束当前流式话语，把调用追加到当前工具组（必要时新开一组并展开）。 */
+    private void handleToolCallCreated(UICardEvent event, SessionRuntimeState state, boolean isActive, String callId) {
+        // 任何工具执行前先闭合当前流式话语，保证工具结束后的新 AI 文本新起一个冒泡
+        finishStreamingText(state, isActive);
+        if (TASK_TOOL_NAME.equals(event.getToolName())) {
+            // Task 由 ToolUIBridge 单独渲染 TaskCard，此处仅需闭合当前话语，不创建冗余的 ToolCallCard
+            return;
+        }
+        if (callId != null) {
+            state.activeToolCallIds.add(callId);
+        }
+
+        ToolCallCard group = state.currentToolGroup;
+        if (group == null || state.needNewToolGroup) {
+            // 新起一组：新建卡片并加入消息列表
+            String projectPath = resolveProjectPath(session);
+            group = new ToolCallCard(projectPath);
+            state.currentToolGroup = group;
+            state.needNewToolGroup = false;
+            if (isActive) {
+                group.setOnContentChanged(c -> onCardContentChanged());
+            }
+            NodeMessageCard wrapper = new NodeMessageCard(group);
+            if (isActive) messages.add(wrapper);
+            state.savedMessages.add(wrapper);
+        }
+        group.addToolCall(event.getToolName(), event.getCardJson());
+        group.markRunning();
+    }
+
+    /** 工具调用结束：从组内活动集合移除，组内全部结束后折叠。 */
+    private void handleToolCallFinished(SessionRuntimeState state, boolean isActive, String callId, String toolName) {
+        if (TASK_TOOL_NAME.equals(toolName)) {
+            return; // Task 不参与 ToolCallCard 组管理
+        }
+        if (callId != null) {
+            state.activeToolCallIds.remove(callId);
+        }
+        ToolCallCard group = state.currentToolGroup;
+        if (group != null && state.activeToolCallIds.isEmpty()) {
+            group.collapseNow();
+        }
+    }
+
+    /** 卡片内容高度变化时触发（供子类桥接外部滚动刷新，默认空实现）。 */
+    protected void onCardContentChanged() {
+    }
+
+    /** 结束当前流式 assistant 文本卡片（未结束则移除空卡）。 */
+    private void finishStreamingText(SessionRuntimeState state, boolean isActive) {
+        if (state.currentAssistantCard == null) {
+            return;
+        }
+        AssistantMessageCard card = state.currentAssistantCard;
+        state.currentAssistantCard = null;
+        card.complete("TOOL_CALLS");
+        if (card.isValid()) {
+            if (isActive) messages.remove(card);
+            state.savedMessages.remove(card);
+        }
+    }
+
 
     private void processMessageEvent(MessageEvent event, SessionRuntimeState state, boolean isActive) {
         if (event.isUserMessage()) {
@@ -838,6 +930,10 @@ public abstract class AbstractHomePageViewModel {
 
     private void processUserEvent(MessageEvent e, SessionRuntimeState state, boolean isActive) {
         state.currentAssistantCard = null;
+        // 新一轮用户交互：结束上一个工具组，后续工具调用新起一组
+        state.currentToolGroup = null;
+        state.needNewToolGroup = true;
+        state.activeToolCallIds.clear();
         // synthetic 消息（Goal 续轮 goal_feedback / 后台任务通知等系统注入）以通知样式渲染
         MessageCard card = e.isSynthetic()
                 ? new cn.bitloom.node.message.NotificationCard(e.getText())
@@ -859,6 +955,8 @@ public abstract class AbstractHomePageViewModel {
                 state.currentAssistantCard = new AssistantMessageCard();
                 if (isActive) messages.add(state.currentAssistantCard);
                 state.savedMessages.add(state.currentAssistantCard);
+                // 新一条 AI 话语开始：此后的工具调用归属于新的一组
+                state.needNewToolGroup = true;
             }
             state.currentAssistantCard.appendContent(text);
         } else if ("STOP".equals(finishReason)) {
@@ -884,15 +982,8 @@ public abstract class AbstractHomePageViewModel {
                 state.savedMessages.add(card);
             }
         } else if ("TOOL_CALLS".equals(finishReason)) {
-            // 工具调用：结束当前流式消息
-            if (state.currentAssistantCard != null) {
-                state.currentAssistantCard.complete("TOOL_CALLS");
-                if (state.currentAssistantCard.isValid()) {
-                    if (isActive) messages.remove(state.currentAssistantCard);
-                    state.savedMessages.remove(state.currentAssistantCard);
-                }
-                state.currentAssistantCard = null;
-            }
+            // 工具调用：结束当前流式消息（工具卡片改由 ToolCardEventHook + UICardEvent 驱动）
+            finishStreamingText(state, isActive);
         }
     }
 

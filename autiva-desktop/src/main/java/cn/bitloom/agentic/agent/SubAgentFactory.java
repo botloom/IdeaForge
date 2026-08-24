@@ -1,6 +1,7 @@
 package cn.bitloom.agentic.agent;
 
 import cn.bitloom.agentic.agent.advisor.AgentMemoryAdvisor;
+import cn.bitloom.agentic.agent.advisor.EnvironmentAdvisor;
 import cn.bitloom.agentic.agent.advisor.MemoryRecallAdvisor;
 import cn.bitloom.agentic.agent.advisor.SessionMemoryAdvisor;
 import cn.bitloom.agentic.agent.advisor.SkillContextAdvisor;
@@ -136,6 +137,7 @@ public class SubAgentFactory {
                 .chatClient(ChatClient.builder(chatModel).build())
                 .build());
         advisors.add(SkillContextAdvisor.builder().skillManager(skillManager).build());
+        advisors.add(EnvironmentAdvisor.builder().build());
 
         List<ToolCallback> allTools = new ArrayList<>(toolkitProvider.getObject().buildToolCallbacks(definition));
         allTools.add(ConversationSearchTool.builder(sessionManager).build().toToolCallback());

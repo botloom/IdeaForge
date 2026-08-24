@@ -1,7 +1,5 @@
 package cn.bitloom.agentic.tool.file;
 
-import cn.bitloom.agentic.event.DiffEvent;
-import cn.bitloom.agentic.event.EventPublisher;
 import cn.bitloom.agentic.tool.AbstractTool;
 import cn.bitloom.agentic.tool.ToolResult;
 import cn.bitloom.agentic.tool.ToolUtils;
@@ -30,11 +28,8 @@ public class EditTool extends AbstractTool<EditTool.Input> {
 			在文件中做精确字符串替换。必须先 Read 文件。old_string 必须精确匹配（包括缩进）。去除 Read 输出的行号前缀后再匹配。用 replace_all 替换全部出现。
 			""";
 
-	private final DiffGenerator diffGenerator;
-
-	private EditTool(DiffGenerator diffGenerator) {
+	private EditTool() {
 		super("Edit", DESCRIPTION, Input.class);
-		this.diffGenerator = diffGenerator;
 	}
 
 	public record Input(
@@ -113,16 +108,6 @@ public class EditTool extends AbstractTool<EditTool.Input> {
 				writer.write(newContent);
 			}
 
-			// 写入后生成 diff 并通过 EventPublisher 推送 DiffEvent（非阻塞，失败不影响写入结果）
-			if (diffGenerator != null) {
-				try {
-					FileDiff fileDiff = diffGenerator.generateDiff(path, originalContent, newContent);
-					publishDiffEvent(context, fileDiff);
-				} catch (Exception e) {
-					log.warn("生成 Diff 失败（不影响写入）: {}", filePath, e);
-				}
-			}
-
 			String snippet = ToolUtils.generateEditSnippet(normalizedResult, normalizedNew);
 			String rawOutput = String.format(
 					"文件%s已更新。以下是对已编辑文件运行`cat -n`的结果片段:\n%s",
@@ -151,39 +136,9 @@ public class EditTool extends AbstractTool<EditTool.Input> {
 	}
 
 	public static class Builder {
-		private DiffGenerator diffGenerator;
-
-		public Builder diffGenerator(DiffGenerator diffGenerator) {
-			this.diffGenerator = diffGenerator;
-			return this;
-		}
 
 		public EditTool build() {
-			return new EditTool(diffGenerator);
+			return new EditTool();
 		}
 	}
-
-	/**
-	 * 从 ToolContext 获取 EventPublisher 和 sessionId，推送 DiffEvent 到 agent 事件流。
-	 * eventSink 或 sessionId 为 null 时跳过（work 模式无 diff 或测试场景）。
-	 */
-	private static void publishDiffEvent(ToolContext context, FileDiff fileDiff) {
-		if (context == null || fileDiff == null) return;
-		Object sinkObj = context.getContext().get("eventSink");
-		Object sessionIdObj = context.getContext().get("sessionId");
-		if (sinkObj instanceof EventPublisher publisher && sessionIdObj instanceof String sessionId) {
-			try {
-				publisher.publish(DiffEvent.of(sessionId, fileDiff));
-			} catch (Exception e) {
-				log.warn("推送 DiffEvent 失败（不影响写入）: {}", fileDiff.filePath(), e);
-			}
-		}
-	}
-
-	private static String extractString(ToolContext context, String key) {
-		if (context == null || context.getContext() == null) return null;
-		Object v = context.getContext().get(key);
-		return v instanceof String s ? s : null;
-	}
-
 }

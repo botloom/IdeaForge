@@ -24,25 +24,6 @@
               VBox.vgrow="ALWAYS"
               styleClass="chat-list-view"
     />
-
-    <VBox fx:id="diffReviewBar" styleClass="home-page__diff-review-bar"
-          visible="false" managed="false"
-          maxWidth="1000" prefWidth="600" minWidth="300"
-          VBox.vgrow="NEVER">
-        <ScrollPane fx:id="diffReviewListScroll" styleClass="home-page__diff-review-list-scroll"
-                    visible="false" managed="false"
-                    fitToWidth="true" hbarPolicy="NEVER" vbarPolicy="AS_NEEDED"
-                    minHeight="244" prefHeight="244" maxHeight="244">
-            <VBox fx:id="diffReviewList" styleClass="home-page__diff-review-list"/>
-        </ScrollPane>
-        <HBox fx:id="diffReviewHeader" styleClass="home-page__diff-review-header">
-            <Label fx:id="diffReviewCount" styleClass="home-page__diff-review-count" text="0 个文件待审查"/>
-            <Region HBox.hgrow="ALWAYS"/>
-            <Button fx:id="diffReviewRejectAllBtn" styleClass="home-page__diff-review-btn,home-page__diff-review-btn--reject" text="全部撤销"/>
-            <Button fx:id="diffReviewApproveAllBtn" styleClass="home-page__diff-review-btn,home-page__diff-review-btn--approve" text="全部保留"/>
-        </HBox>
-    </VBox>
-
     <VBox fx:id="approvalBar" styleClass="home-page__approval-bar"
           visible="false" managed="false"
           maxWidth="1000" prefWidth="600" minWidth="300"

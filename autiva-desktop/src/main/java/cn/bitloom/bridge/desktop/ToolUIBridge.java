@@ -28,7 +28,6 @@ public class ToolUIBridge {
     private final Map<String, ApprovalCard> approvalCards = new ConcurrentHashMap<>();
     private final Map<String, TaskCard> activeTaskCards = new ConcurrentHashMap<>();
     private final Map<String, TaskCard> sessionTaskCards = new ConcurrentHashMap<>();
-    private TodoCard currentTodoCard = null;
     private cn.bitloom.node.tool.GoalCard currentGoalCard = null;
 
     /** 卡片节点投放回调（sessionId, node）。仅应投放到 active session；非 active 由 VM 按 session 路由记录。 */
@@ -192,32 +191,18 @@ public class ToolUIBridge {
         Platform.runLater(() -> {
             try {
                 TaskCard taskCard = sessionId != null ? this.sessionTaskCards.get(sessionId) : null;
+                TodoCard card = new TodoCard(todosJson);
                 if (taskCard != null) {
-                    // 子智能体场景：仍新建（TaskCard 内部管理）
-                    TodoCard card = new TodoCard(todosJson);
+                    // 子智能体场景：TodoCard 挂在 TaskCard 内
                     taskCard.addTodoCard(card);
-                } else {
-                    // 主对话场景：复用 currentTodoCard，避免每次更新都新建卡片
-                    if (currentTodoCard == null) {
-                        currentTodoCard = new TodoCard(todosJson);
-                        if (this.onNodeAdded != null) {
-                            this.onNodeAdded.accept(sessionId, currentTodoCard);
-                        }
-                    } else {
-                        currentTodoCard.update(todosJson);
-                    }
+                } else if (this.onNodeAdded != null) {
+                    // 主对话场景：每次 todo 更新都新建独立卡片（不复用上次的卡）
+                    this.onNodeAdded.accept(sessionId, card);
                 }
             } catch (Exception e) {
                 log.error("Error showing todos", e);
             }
         });
-    }
-
-    /**
-     * 重置当前 TodoCard 引用（新会话时调用，使下次 showTodos 创建新卡片）
-     */
-    public void resetTodoCard() {
-        this.currentTodoCard = null;
     }
 
     public void createTaskCard(String sessionId, String taskId, String taskJson) {

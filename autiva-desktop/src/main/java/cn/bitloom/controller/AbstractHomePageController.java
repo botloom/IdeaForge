@@ -7,6 +7,7 @@ import cn.bitloom.holder.PageHolder;
 import cn.bitloom.node.AutoResizeTextArea;
 import cn.bitloom.node.message.*;
 import cn.bitloom.node.tool.TaskCard;
+import cn.bitloom.node.tool.ToolCallCard;
 import cn.bitloom.store.Store;
 import cn.bitloom.vm.AbstractHomePageViewModel;
 import cn.bitloom.window.WindowManager;
@@ -355,8 +356,9 @@ public abstract class AbstractHomePageController implements Initializable, Butto
             if (card instanceof NodeMessageCard nmc) {
                 Node node = nmc.getNode();
                 if (node instanceof Region region) {
+                    double factor = node instanceof ToolCallCard ? 0.6 : 0.85;
                     region.maxWidthProperty().bind(
-                            Bindings.max(100, chatScrollPane.widthProperty().subtract(32).multiply(0.85))
+                            Bindings.max(100, chatScrollPane.widthProperty().subtract(32).multiply(factor))
                     );
                 }
                 container.getChildren().add(node);
@@ -380,7 +382,6 @@ public abstract class AbstractHomePageController implements Initializable, Butto
      * 切换 session 时重置 todo 卡片引用，确保只显示当前 active session 的产物。
      */
     private void clearEditorPanelCards() {
-        toolUIBridge.resetTodoCard();
         toolUIBridge.resetGoalCard();
     }
 
@@ -539,14 +540,6 @@ public abstract class AbstractHomePageController implements Initializable, Butto
         return sb.toString();
     }
 
-    /**
-     * 从 DiffService 刷新 diff 审查条（通用基类空实现，coder 模式 override）
-     * 在 diff 看板中撤销/保留文件后，通知首页同步更新 diff 卡片列表。
-     */
-    public void refreshDiffReviewBarFromService() {
-        // work 模式不支持 diff 审查条
-    }
-
     private void handleOpenCanvas() {
         windowManager.showDialog("cn/bitloom/view/CanvasDialog.fxml", this.sendBox.getScene().getWindow(), controller -> {
             if (controller instanceof CanvasDialogController canvasController) {
@@ -662,7 +655,6 @@ public abstract class AbstractHomePageController implements Initializable, Butto
     public void resetForNewSession() {
         this.sendField.clear();
         this.tags.clear();
-        toolUIBridge.resetTodoCard();
         toolUIBridge.resetGoalCard();
 
         // 子类专有重置逻辑
@@ -685,7 +677,7 @@ public abstract class AbstractHomePageController implements Initializable, Butto
     }
 
     /**
-     * 子类实现模式专有的重置逻辑（如清空 diff 审查条）
+     * 子类实现模式专有的重置逻辑
      */
     protected abstract void onResetForNewSession();
 

@@ -14,7 +14,7 @@ import lombok.extern.jackson.Jacksonized;
 @NoArgsConstructor
 public final class UICardEvent extends AbstractEvent {
 
-    public enum Type { TASK_CARD, QUESTION_CARD }
+    public enum Type { TASK_CARD, QUESTION_CARD, TOOL_CARD }
     public enum Status { CREATED, COMPLETED, FAILED, ANSWERED }
 
     @Builder.Default
@@ -25,6 +25,9 @@ public final class UICardEvent extends AbstractEvent {
     private String cardJson;
     private Status status;
     private String result;
+
+    /** 工具卡片专用：工具名称（TOOL_CARD 类型时有效） */
+    private String toolName;
 
     @Builder.Default
     private boolean persist = false;
@@ -69,4 +72,34 @@ public final class UICardEvent extends AbstractEvent {
 
     public boolean isTaskCard() { return type == Type.TASK_CARD; }
     public boolean isQuestionCard() { return type == Type.QUESTION_CARD; }
+
+    /**
+     * 工具卡片创建事件（工具调用开始）：cardJson 为工具入参（如 {"filePath":...} 或 {"command":...}）。
+     */
+    public static UICardEvent toolCardCreated(String sessionId, String callId, String toolName, String argumentsJson) {
+        return UICardEvent.builder()
+                .sessionId(sessionId).type(Type.TOOL_CARD).cardId(callId)
+                .toolName(toolName).cardJson(argumentsJson).status(Status.CREATED).persist(false)
+                .build();
+    }
+
+    /**
+     * 工具卡片完成事件（工具执行成功）：不含结果明细，仅标记状态。
+     */
+    public static UICardEvent toolCardCompleted(String sessionId, String callId, String toolName) {
+        return UICardEvent.builder()
+                .sessionId(sessionId).type(Type.TOOL_CARD).cardId(callId)
+                .toolName(toolName).status(Status.COMPLETED).persist(false)
+                .build();
+    }
+
+    /**
+     * 工具卡片失败事件（工具执行失败）：result 仅存错误摘要，用于 UI 标记，不含完整结果。
+     */
+    public static UICardEvent toolCardFailed(String sessionId, String callId, String toolName, String error) {
+        return UICardEvent.builder()
+                .sessionId(sessionId).type(Type.TOOL_CARD).cardId(callId)
+                .toolName(toolName).status(Status.FAILED).result(error).persist(false)
+                .build();
+    }
 }

@@ -1,6 +1,8 @@
 package cn.bitloom.node.editor.syntax;
 
+import org.fxmisc.richtext.CodeArea;
 import org.fxmisc.richtext.StyleClassedTextArea;
+import org.fxmisc.richtext.model.StyleSpansBuilder;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -57,15 +59,51 @@ public abstract class AbstractRegexHighlighter implements SyntaxHighlighter {
         int docLength = area.getLength();
         Pattern pattern = getOrCompilePattern();
         Matcher matcher = pattern.matcher(source);
+
+        // 按文档顺序收集命中 token 的 [start,end,styleClass] 区间。
+        List<Object[]> tokens = new ArrayList<>();
         while (matcher.find()) {
             for (int i = 0; i < cachedStyleClasses.size(); i++) {
                 int start = matcher.start(i + 1);
                 int end = matcher.end(i + 1);
                 if (start >= 0 && end > start && end <= docLength) {
-                    area.setStyleClass(start, end, cachedStyleClasses.get(i));
+                    tokens.add(new Object[]{start, end, cachedStyleClasses.get(i)});
                     break;
                 }
             }
+        }
+
+        // 用一次 setStyleSpans 整段应用样式，替代逐段 setStyleClass：
+        // 将大文件的 O(n) 次样式重绘通知降为 1 次，显著降低高亮耗时。
+        // CodeArea 的段样式类型为 Collection<String>，因此用集合承载样式类名。
+        StyleSpansBuilder<List<String>> builder = new StyleSpansBuilder<>();
+        int cursor = 0;
+        for (Object[] t : tokens) {
+            int start = (Integer) t[0];
+            int end = (Integer) t[1];
+            String style = (String) t[2];
+            if (start > cursor) {
+                builder.add(List.of(), start - cursor);   // 未命中区间：无样式
+            }
+            builder.add(List.of(style), end - start);     // 命中区间：应用样式类
+            cursor = end;
+        }
+        if (cursor < docLength) {
+            builder.add(List.of(), docLength - cursor);
+        }
+        // CodeArea 继承自 StyleClassedTextArea，其段样式为 Collection<String>，
+        // setStyleSpans 接受的正是 StyleSpans<? extends Collection<String>>。
+        if (area instanceof CodeArea ca) {
+            ca.setStyleSpans(0, builder.create());
+        } else {
+            applyIndividually(area, tokens);
+        }
+    }
+
+    /** 兜底：非 CodeArea 类型时按原逻辑逐段设置样式。 */
+    private void applyIndividually(StyleClassedTextArea area, List<Object[]> tokens) {
+        for (Object[] t : tokens) {
+            area.setStyleClass((Integer) t[0], (Integer) t[1], (String) t[2]);
         }
     }
 

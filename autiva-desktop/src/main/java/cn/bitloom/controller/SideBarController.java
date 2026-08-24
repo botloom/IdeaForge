@@ -8,6 +8,7 @@ import cn.bitloom.agentic.session.Session;
 import cn.bitloom.constant.AgentMode;
 import cn.bitloom.holder.PageHolder;
 import cn.bitloom.node.project.FileTreeCell;
+import cn.bitloom.node.project.LazyTreeItem;
 import cn.bitloom.node.svg.SvgImageView;
 import cn.bitloom.project.FileTreeService;
 import cn.bitloom.project.ProjectInfo;
@@ -510,84 +511,35 @@ public class SideBarController implements Initializable, PageHolder {
     }
 
     /**
-     * 依据当前 Git 状态重建目录树，使新增/删除/修改的文件立即反映并正确着色。
+     * 文件变化时增量同步目录树：仅触发已在树中（已加载/已展开）的各目录重扫，
+     * 复用原 LazyTreeItem 实例，因此整树结构、展开/选中状态全部保留，不会重建导致折叠。
+     * 新增/删除的文件在各自父目录的重扫 diff 后即时出现/消失。
      */
     private void refreshProjectTree() {
-        if (watchedProjectPath == null || currentTreeView == null) {
+        if (watchedProjectPath == null || currentTreeView == null
+                || currentTreeView.getRoot() == null) {
             return;
         }
         try {
-            // 记录刷新前已展开节点的绝对路径，重建后恢复展开状态
-            Set<Path> expandedPaths = new HashSet<>();
-            collectExpandedPaths(currentTreeView.getRoot(), expandedPaths);
-
-            Path selectedValue = null;
-            TreeItem<Path> selected = currentTreeView.getSelectionModel().getSelectedItem();
-            if (selected != null) {
-                selectedValue = selected.getValue();
-            }
-            TreeItem<Path> newRoot = fileTreeService.buildFileTree(watchedProjectPath);
-            currentTreeView.setRoot(newRoot);
-            // 恢复展开状态（懒加载节点 setExpanded(true) 会触发逐层加载）
-            expandPaths(newRoot, expandedPaths);
-            // 恢复选中：在已加载的树节点中查找对应路径
-            if (selectedValue != null) {
-                TreeItem<Path> target = findTreeItem(newRoot, selectedValue.toAbsolutePath().normalize());
-                if (target != null) {
-                    currentTreeView.getSelectionModel().select(target);
-                }
-            }
+            collectLoadedAndRescan(currentTreeView.getRoot());
+            // 仅重绘现有单元格，使 Git 着色读最新状态；不重建树结构
+            currentTreeView.refresh();
         } catch (Exception e) {
             log.warn("刷新目录树失败: {}", watchedProjectPath, e);
         }
     }
 
-    /** 递归收集当前树中所有已展开节点的绝对路径。 */
-    private void collectExpandedPaths(TreeItem<Path> node, Set<Path> acc) {
+    /** 递归为每个已加载的目录节点触发增量重扫。 */
+    private void collectLoadedAndRescan(TreeItem<Path> node) {
         if (node == null || node.getValue() == null) {
             return;
         }
-        if (node.isExpanded()) {
-            acc.add(node.getValue().toAbsolutePath().normalize());
+        if (node instanceof LazyTreeItem lazy) {
+            lazy.rescan();
         }
         for (TreeItem<Path> child : node.getChildren()) {
-            collectExpandedPaths(child, acc);
+            collectLoadedAndRescan(child);
         }
-    }
-
-    /**
-     * 在重建后的树中逐层恢复展开状态。
-     * 惰性加载节点须沿路径逐级定位并 setExpanded(true)（触发子层加载），
-     * 以保证深层节点也能被重新展开。
-     */
-    private void expandPaths(TreeItem<Path> node, Set<Path> allExpanded) {
-        if (node == null || node.getValue() == null) {
-            return;
-        }
-        Path abs = node.getValue().toAbsolutePath().normalize();
-        if (allExpanded.contains(abs)) {
-            node.setExpanded(true);
-        }
-        for (TreeItem<Path> child : node.getChildren()) {
-            expandPaths(child, allExpanded);
-        }
-    }
-
-    /** 在树节点中递归查找指定绝对路径的 TreeItem（仅覆盖已加载节点）。 */
-    private TreeItem<Path> findTreeItem(TreeItem<Path> node, Path absTarget) {
-        if (node == null || node.getValue() == null) {
-            return null;
-        }
-        if (node.getValue().toAbsolutePath().normalize().equals(absTarget)) {
-            return node;
-        }
-        for (TreeItem<Path> child : node.getChildren()) {
-            TreeItem<Path> hit = findTreeItem(child, absTarget);
-            if (hit != null) {
-                return hit;
-            }
-        }
-        return null;
     }
 
     /** 取消当前 Git 状态监听与已展开目录树（切回会话列表时调用） */

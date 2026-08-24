@@ -473,16 +473,6 @@ public class IndexController implements Initializable {
     }
 
     /**
-     * 刷新首页的 diff 审查条（diff 看板中撤销/保留后调用）
-     */
-    public void refreshDiffReviewBar() {
-        AbstractHomePageController home = getHomePageController();
-        if (home != null) {
-            home.refreshDiffReviewBarFromService();
-        }
-    }
-
-    /**
      * 将选中文本以 tag 形式加入对话框输入框（编辑器面板 → 对话框联动）
      */
     public void addTextToChat(String text) {

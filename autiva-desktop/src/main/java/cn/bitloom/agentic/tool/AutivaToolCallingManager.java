@@ -1,8 +1,5 @@
 package cn.bitloom.agentic.tool;
 
-import cn.bitloom.agentic.event.EventConverter;
-import cn.bitloom.agentic.event.EventPublisher;
-import cn.bitloom.agentic.event.MessageEvent;
 import lombok.extern.slf4j.Slf4j;
 import org.jspecify.annotations.NonNull;
 import org.springframework.ai.chat.messages.AssistantMessage;
@@ -32,14 +29,15 @@ import java.util.Set;
 import java.util.stream.Collectors;
 
 /**
- * 自定义工具调用管理器，在工具执行前增加校验：
+ * 自定义工具调用管理器，在工具执行前增加存在性校验：
  * <p>
- * 1. 工具存在性校验：当 LLM 幻觉出不存在的工具名时，返回友好错误提示而非抛异常，
- *    让 LLM 有机会自我纠正
- * 2. 工具权限校验：基于 AgentDefinition.tools() 白名单，阻止未授权的工具调用
+ * 当 LLM 幻觉出不存在的工具名时，返回友好错误提示而非抛异常，让 LLM 有机会自我纠正。
  * <p>
  * 参考 Spring AI 2.0 的 DefaultToolCallingManager 实现，核心改动为：
  * 找不到 ToolCallback 时返回 ToolResult.toolNotFound() 错误响应，而非抛 IllegalStateException。
+ * <p>
+ * 工具展示卡片事件不在此发布：Read/Write/Edit/Command 的 UICardEvent 由
+ * {@code ToolCardEventHook}（before/afterToolCall）负责发布。
  */
 @Slf4j
 public class AutivaToolCallingManager implements ToolCallingManager {
@@ -74,18 +72,6 @@ public class AutivaToolCallingManager implements ToolCallingManager {
 
         AssistantMessage assistantMessage = toolCallGeneration.get().getOutput();
         ToolContext toolContext = buildToolContext(prompt);
-
-        // 1.1 从 ToolContext 获取 eventSink 和 sessionId，发布工具调用事件（含 toolCalls 的 AssistantMessage）
-        EventPublisher eventSink = extractEventSink(toolContext);
-        String sessionId = extractSessionId(toolContext);
-        if (eventSink != null && sessionId != null) {
-            try {
-                MessageEvent toolCallEvent = EventConverter.fromMessage(sessionId, assistantMessage);
-                eventSink.publish(toolCallEvent);
-            } catch (Exception e) {
-                log.warn("[ToolCall] 发布工具调用事件失败", e);
-            }
-        }
 
         // 2. 从 prompt options 获取已注册的 ToolCallback 列表
         List<ToolCallback> toolCallbacks = List.of();
@@ -154,16 +140,6 @@ public class AutivaToolCallingManager implements ToolCallingManager {
         ToolResponseMessage toolResponseMessage = ToolResponseMessage.builder()
                 .responses(toolResponses).build();
 
-        // 4.1 发布工具响应事件（ToolResponseMessage）
-        if (eventSink != null && sessionId != null) {
-            try {
-                MessageEvent toolResponseEvent = EventConverter.fromMessage(sessionId, toolResponseMessage);
-                eventSink.publish(toolResponseEvent);
-            } catch (Exception e) {
-                log.warn("[ToolCall] 发布工具响应事件失败", e);
-            }
-        }
-
         List<Message> conversationHistory = new ArrayList<>(prompt.getInstructions());
         conversationHistory.add(assistantMessage);
         conversationHistory.add(toolResponseMessage);
@@ -175,23 +151,8 @@ public class AutivaToolCallingManager implements ToolCallingManager {
     }
 
     /**
-     * 从 ToolContext 提取 EventPublisher（可能为 null，如测试场景）。
+     * 从 prompt options 提取 ToolContext，供工具执行传入。
      */
-    private EventPublisher extractEventSink(ToolContext toolContext) {
-        if (toolContext == null) return null;
-        Object sink = toolContext.getContext().get("eventSink");
-        return sink instanceof EventPublisher publisher ? publisher : null;
-    }
-
-    /**
-     * 从 ToolContext 提取 sessionId。
-     */
-    private String extractSessionId(ToolContext toolContext) {
-        if (toolContext == null) return null;
-        Object id = toolContext.getContext().get("sessionId");
-        return id instanceof String sid ? sid : null;
-    }
-
     private static ToolContext buildToolContext(Prompt prompt) {
         Map<String, Object> toolContextMap = Map.of();
         if (prompt.getOptions() instanceof ToolCallingChatOptions options

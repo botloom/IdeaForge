@@ -79,7 +79,6 @@ public class Toolkit {
     private final cn.bitloom.agentic.workflow.WorkflowRegistry workflowRegistry;
     private final cn.bitloom.agentic.goal.GoalManager goalManager;
     private final ModelFactory modelFactory;
-    private final ObjectProvider<DiffGenerator> diffGeneratorProvider;
     private final ObjectProvider<Toolkit> selfProvider;
 
     @PostConstruct
@@ -136,10 +135,9 @@ public class Toolkit {
         List<AbstractTool<?>> tools = new ArrayList<>();
 
         // 文件操作（权限审批由 PermissionHook 统一处理）
-        DiffGenerator dg = diffGeneratorProvider.getIfAvailable();
         tools.add(ReadTool.builder().build());
-        tools.add(WriteTool.builder().diffGenerator(dg).build());
-        tools.add(EditTool.builder().diffGenerator(dg).build());
+        tools.add(WriteTool.builder().build());
+        tools.add(EditTool.builder().build());
         // 搜索
         tools.add(GlobTool.builder().build());
         tools.add(GrepTool.builder().build());
