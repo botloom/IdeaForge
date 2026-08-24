@@ -233,7 +233,7 @@ public abstract class AbstractHomePageController implements Initializable, Butto
      * 子类在影响 {@link #isSendInputLocked()} 的状态变化时调用。
      */
     protected void refreshSendInputDisabled() {
-        boolean loading = Boolean.TRUE.equals(this.getViewModel().historyLoadingProperty().get());
+        boolean loading = this.getViewModel().historyLoadingProperty().get();
         this.sendField.setDisable(loading || isSendInputLocked());
     }
 

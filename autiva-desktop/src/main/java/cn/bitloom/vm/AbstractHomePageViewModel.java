@@ -952,10 +952,15 @@ public abstract class AbstractHomePageViewModel {
                 return;
             }
             if (state.currentAssistantCard == null) {
+                // 空文本的 chunk（如工具间 silent revision：无文本、仅继续调用工具）不构成
+                // 新的 AI 话语，不新建卡片、也不重置工具分组，保证连续工具合并为同一组。
+                if (text == null || text.isBlank()) {
+                    return;
+                }
                 state.currentAssistantCard = new AssistantMessageCard();
                 if (isActive) messages.add(state.currentAssistantCard);
                 state.savedMessages.add(state.currentAssistantCard);
-                // 新一条 AI 话语开始：此后的工具调用归属于新的一组
+                // 新一条 AI 话语开始（出现实质文本）：此后的工具调用归属于新的一组
                 state.needNewToolGroup = true;
             }
             state.currentAssistantCard.appendContent(text);
