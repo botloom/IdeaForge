@@ -1,7 +1,6 @@
 package cn.bitloom.node.tool;
 
 import cn.bitloom.agentic.event.MessageEvent;
-import cn.bitloom.node.message.ToolMessageCard;
 import cn.bitloom.util.MarkdownFxRenderer;
 import cn.bitloom.util.JsonUtils;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -27,8 +26,6 @@ import lombok.Setter;
 
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Map;
-import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Consumer;
 
 public class TaskCard extends VBox {
@@ -48,7 +45,6 @@ public class TaskCard extends VBox {
     private Text streamingText = null;
     /** 节流标志：同一 FX 脉冲内多次 chunk 只调度一次 flush */
     private boolean textUpdateScheduled = false;
-    private final Map<String, ToolMessageCard> pendingToolCards = new ConcurrentHashMap<>();
 
     private boolean userCollapsed = false;
 
@@ -141,8 +137,6 @@ public class TaskCard extends VBox {
     public void processEvent(MessageEvent event) {
         if (event.isAssistantMessage()) {
             processAssistantEvent(event);
-        } else if (event.isToolResponse()) {
-            processToolEvent(event);
         }
 
         ensureBodyVisible();
@@ -194,21 +188,7 @@ public class TaskCard extends VBox {
                 streamingTextFlow = null;
                 streamingText = null;
             }
-
-            if (e.getToolCalls() != null) {
-                for (MessageEvent.ToolCallInfo tc : e.getToolCalls()) {
-                    appendToolCallCard(tc.id(), tc.name(), tc.arguments());
-                }
-            }
             streamBuffer.setLength(0);
-        }
-    }
-
-    private void processToolEvent(MessageEvent e) {
-        if (e.getResponses() != null && !e.getResponses().isEmpty()) {
-            for (MessageEvent.ToolResponseInfo resp : e.getResponses()) {
-                appendToolResponseCard(resp.id(), resp.name(), resp.responseData());
-            }
         }
     }
 
@@ -288,19 +268,6 @@ public class TaskCard extends VBox {
         mdBox.getStyleClass().add("chat-message__task-assistant");
         renderStreamContent(mdBox, content);
         addMessageNode(mdBox);
-    }
-
-    private void appendToolCallCard(String toolCallId, String toolName, String arguments) {
-        ToolMessageCard card = new ToolMessageCard(toolCallId, toolName, arguments);
-        pendingToolCards.put(toolCallId, card);
-        addMessageNode(card);
-    }
-
-    private void appendToolResponseCard(String toolCallId, String toolName, String responseData) {
-        ToolMessageCard card = pendingToolCards.remove(toolCallId);
-        if (card != null) {
-            card.setResponse(responseData);
-        }
     }
 
     /**

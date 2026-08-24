@@ -1,13 +1,10 @@
 package cn.bitloom.controller;
 
-import cn.bitloom.controller.EditorPanelController.ViewType;
-import cn.bitloom.project.ProjectInfo;
-import cn.bitloom.constant.AgentMode;
+import cn.bitloom.controller.EditorPanelController;
 import cn.bitloom.router.HomePageRouter;
 import cn.bitloom.router.Router;
 import cn.bitloom.store.Store;
 import cn.bitloom.util.MarkdownFxRenderer;
-import cn.bitloom.vm.CodeHomePageViewModel;
 import javafx.application.Platform;
 import javafx.fxml.FXML;
 import javafx.fxml.Initializable;
@@ -121,41 +118,12 @@ public class IndexController implements Initializable {
 
         this.initializeButtonBar();
 
-        // 智能体切换联动：重建 ButtonBar + 关闭 coder 专有 EditorPanel 视图
+        // 智能体切换联动：重建 ButtonBar
         Store.currentAgent.addListener((obs, oldVal, newVal) -> Platform.runLater(() -> {
             if (router != null) {
                 router.updateButtonBarForRoute(Store.currentRoute.get());
             }
-            EditorPanelController editor = getEditorPanelController();
-            if (editor != null && editor.isVisible()
-                    && AgentMode.fromAgentId(newVal) != AgentMode.CODE) {
-                editor.closeTerminal();
-            }
-            // 模式切换后重新绑定右上角按钮激活态（active editor 可能已更换）
-            bindEditorViewTypeSync();
         }));
-
-        // 初始化完成后绑定右上角按钮激活态联动（异步确保 editor/按钮已就绪）
-        Platform.runLater(this::bindEditorViewTypeSync);
-    }
-
-    /**
-     * 将当前 active 编辑器的视图类型变化同步到右侧 ViewButtonBar 按钮的蓝色激活态：
-     * 视图打开时对应按钮蓝色高亮，全部关闭时清除高亮。
-     */
-    private void bindEditorViewTypeSync() {
-        EditorPanelController editor = getEditorPanelController();
-        if (editor == null) return;
-        editor.setOnViewTypeChanged(this::applyViewButtonState);
-        applyViewButtonState(editor.getCurrentViewType());
-    }
-
-    /** 根据当前视图类型设置按钮激活态（null 表示无激活视图，清除全部高亮） */
-    private void applyViewButtonState(ViewType type) {
-        if (buttonBarController == null) return;
-        buttonBarController.setViewActive("terminalButton", type == ViewType.TERMINAL);
-        buttonBarController.setViewActive("toolCallsButton", type == ViewType.TOOL_CALLS);
-        buttonBarController.setViewActive("todoButton", type == ViewType.TODO);
     }
 
     private void initializeButtonBar() {
@@ -443,38 +411,6 @@ public class IndexController implements Initializable {
     // ===== 编辑器面板管理 =====
 
     /**
-     * 切换终端面板：当前若显示终端则关闭，否则打开（开/关切换语义）。
-     */
-    public void toggleTerminalPanel() {
-        EditorPanelController editor = getEditorPanelController();
-        if (editor == null) return;
-        if (editor.isCurrentView(ViewType.TERMINAL)) {
-            editor.closeTerminal();
-        } else {
-            ensureEditorVisible();
-            editor.openTerminal(resolveWorkingDir());
-        }
-    }
-
-    /**
-     * 切换工具调用面板：单例视图，开/关切换，关闭仅隐藏不重建。
-     */
-    public void toggleToolCallsPanel() {
-        EditorPanelController editor = getEditorPanelController();
-        if (editor == null) return;
-        editor.toggleToolCallsView();
-    }
-
-    /**
-     * 切换待办面板：单例视图，开/关切换，关闭仅隐藏不重建。
-     */
-    public void toggleTodoPanel() {
-        EditorPanelController editor = getEditorPanelController();
-        if (editor == null) return;
-        editor.toggleTodoView();
-    }
-
-    /**
      * 关闭编辑器面板（从 BorderPane 右槽位摘除）
      */
     public void closeEditorPanel() {
@@ -501,16 +437,6 @@ public class IndexController implements Initializable {
             rootContainer.setRight(editorHolder);
         }
         editor.show();
-    }
-
-    /**
-     * 关闭终端会话
-     */
-    public void closeTerminal() {
-        EditorPanelController editor = getEditorPanelController();
-        if (editor != null) {
-            editor.closeTerminal();
-        }
     }
 
     /**
@@ -574,19 +500,5 @@ public class IndexController implements Initializable {
         if (home != null) {
             home.appendFileRefToChat(filePath, startLine, endLine);
         }
-    }
-
-    /**
-     * 解析当前工作目录（coder 模式返回当前项目路径，work 模式返回 null）
-     */
-    private Path resolveWorkingDir() {
-        AbstractHomePageController home = getHomePageController();
-        if (home != null && home.getViewModel() instanceof CodeHomePageViewModel coderVm) {
-            ProjectInfo project = coderVm.getCurrentProject();
-            if (project != null) {
-                return Path.of(project.path());
-            }
-        }
-        return null;
     }
 }

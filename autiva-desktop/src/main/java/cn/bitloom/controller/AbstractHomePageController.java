@@ -7,7 +7,6 @@ import cn.bitloom.holder.PageHolder;
 import cn.bitloom.node.AutoResizeTextArea;
 import cn.bitloom.node.message.*;
 import cn.bitloom.node.tool.TaskCard;
-import cn.bitloom.node.tool.TodoCard;
 import cn.bitloom.store.Store;
 import cn.bitloom.vm.AbstractHomePageViewModel;
 import cn.bitloom.window.WindowManager;
@@ -164,10 +163,7 @@ public abstract class AbstractHomePageController implements Initializable, Butto
         VBox.setVgrow(this.chatScrollPane, Priority.ALWAYS);
         this.chatListContainer.getChildren().add(this.chatScrollPane);
 
-        // 注入工具卡片路由回调：ToolMessageCard 直接发送到 EditorPanel，不进 messages 列表
-        this.getViewModel().setToolCardHandler(this::addToolToEditorPanel);
-
-        // 注入 session 激活回调：切换 session 时清空 EditorPanel 工具卡片 / todo，
+        // 注入 session 激活回调：切换 session 时重置 todo 卡片引用，
         // 并强制滚动到底部（stickToBottom 残留旧值会导致切回的 session 不跟随最新消息）
         this.getViewModel().setSessionActivatedHandler(_ -> {
             clearEditorPanelCards();
@@ -380,19 +376,10 @@ public abstract class AbstractHomePageController implements Initializable, Butto
         }
     }
 
-    private void addToolToEditorPanel(ToolMessageCard toolCard) {
-        if (indexController == null || indexController.getEditorPanelController() == null) return;
-        indexController.getEditorPanelController().addToolCallCard(toolCard);
-    }
-
     /**
-     * 切换 session 时清空 EditorPanel 的工具卡片 / todo，确保只显示当前 active session 的产物。
-     * 后台 session 已产生的工具卡片不恢复（按当前设计，工具卡片不持久化）。
+     * 切换 session 时重置 todo 卡片引用，确保只显示当前 active session 的产物。
      */
     private void clearEditorPanelCards() {
-        if (indexController == null || indexController.getEditorPanelController() == null) return;
-        indexController.getEditorPanelController().clearToolCalls();
-        indexController.getEditorPanelController().clearTodos();
         toolUIBridge.resetTodoCard();
         toolUIBridge.resetGoalCard();
     }
@@ -403,12 +390,6 @@ public abstract class AbstractHomePageController implements Initializable, Butto
      * 由 HomePageRouter 在模式切换时重绑定。
      */
     public void addChatNode(String sessionId, Node node) {
-        if (node instanceof TodoCard todoCard) {
-            if (indexController != null && indexController.getEditorPanelController() != null) {
-                indexController.getEditorPanelController().addTodoCard(todoCard);
-            }
-            return;
-        }
         if (node instanceof Region region) {
             region.maxWidthProperty().bind(
                     Bindings.max(100, chatScrollPane.widthProperty().subtract(32).multiply(0.85))
@@ -664,33 +645,10 @@ public abstract class AbstractHomePageController implements Initializable, Butto
     }
 
     /**
-     * 创建通用按钮配置：工具视图、待办事项（Work 与 Coder 共有，右侧对齐）。
+     * 首页通用按钮配置（Work 与 Coder 共有）。当前无右侧视图按钮。
      */
     protected List<ButtonBarHolder.ButtonConfig> createCommonButtons() {
-        List<ButtonBarHolder.ButtonConfig> configs = new ArrayList<>();
-        configs.add(new ButtonBarHolder.ButtonConfig(
-                "toolCallsButton",
-                "工具视图",
-                "button-bar__icon-btn",
-                "/cn/bitloom/images/plug.svg",
-                ButtonBarHolder.Alignment.RIGHT,
-                _ -> {
-                    if (indexController != null) {
-                        indexController.toggleToolCallsPanel();
-                    }
-                }));
-        configs.add(new ButtonBarHolder.ButtonConfig(
-                "todoButton",
-                "待办事项",
-                "button-bar__icon-btn",
-                "/cn/bitloom/images/list.svg",
-                ButtonBarHolder.Alignment.RIGHT,
-                _ -> {
-                    if (indexController != null) {
-                        indexController.toggleTodoPanel();
-                    }
-                }));
-        return configs;
+        return new ArrayList<>();
     }
 
     /**
@@ -706,10 +664,6 @@ public abstract class AbstractHomePageController implements Initializable, Butto
         this.tags.clear();
         toolUIBridge.resetTodoCard();
         toolUIBridge.resetGoalCard();
-        if (indexController != null && indexController.getEditorPanelController() != null) {
-            indexController.getEditorPanelController().clearToolCalls();
-            indexController.getEditorPanelController().clearTodos();
-        }
 
         // 子类专有重置逻辑
         onResetForNewSession();

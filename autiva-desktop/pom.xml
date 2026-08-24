@@ -91,13 +91,6 @@
             <artifactId>batik-rasterizer</artifactId>
         </dependency>
 
-        <!-- JediTermFX 终端 UI -->
-        <dependency>
-            <groupId>com.techsenger.jeditermfx</groupId>
-            <artifactId>jeditermfx-ui</artifactId>
-            <version>1.1.0</version>
-        </dependency>
-
         <!-- Jackson Java 8 日期时间支持 -->
         <dependency>
             <groupId>com.fasterxml.jackson.datatype</groupId>

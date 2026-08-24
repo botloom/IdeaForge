@@ -3,9 +3,6 @@ package cn.bitloom.controller;
 import cn.bitloom.node.editor.syntax.SyntaxHighlighter;
 import cn.bitloom.node.editor.syntax.SyntaxHighlighterFactory;
 import cn.bitloom.node.message.InputTag;
-import cn.bitloom.node.terminal.JediTerminalView;
-import cn.bitloom.node.terminal.PtySession;
-import cn.bitloom.node.terminal.PtyTerminalService;
 import cn.bitloom.project.ProjectInfo;
 import cn.bitloom.project.git.GitFileStatus;
 import cn.bitloom.project.git.GitStatusService;
@@ -54,7 +51,6 @@ import java.util.function.IntFunction;
 @Component
 public class CoderEditorPanelController extends EditorPanelController implements Initializable {
 
-    private final PtyTerminalService ptyTerminalService;
     private final ProjectStatusStore projectStatusStore;
     private final GitStatusService gitStatusService;
     private boolean refreshSubscribed = false;
@@ -67,10 +63,8 @@ public class CoderEditorPanelController extends EditorPanelController implements
         return t;
     });
 
-    public CoderEditorPanelController(PtyTerminalService ptyTerminalService,
-                                      ProjectStatusStore projectStatusStore,
+    public CoderEditorPanelController(ProjectStatusStore projectStatusStore,
                                       GitStatusService gitStatusService) {
-        this.ptyTerminalService = ptyTerminalService;
         this.projectStatusStore = projectStatusStore;
         this.gitStatusService = gitStatusService;
     }
@@ -94,106 +88,6 @@ public class CoderEditorPanelController extends EditorPanelController implements
             }
         }
         return null;
-    }
-
-    // ===== 终端（单顶部按钮 + 子 tab 多开） =====
-
-    @Override
-    public void openTerminal(Path workingDir) {
-        show();
-        EditorTab terminalTab = findTabByType(ViewType.TERMINAL);
-        SubTabContainer container;
-        if (terminalTab != null) {
-            container = (SubTabContainer) terminalTab.userData.get("container");
-            selectTab(terminalTab);
-        } else {
-            container = new SubTabContainer(
-                    _ -> openTerminal(resolveWorkingDir()),
-                    this::cleanupTerminalSubTab);
-            final EditorTab newTab = createTab(ViewType.TERMINAL, container.getView());
-            newTab.userData.put("container", container);
-            newTab.userData.put("workingDir", workingDir);
-            container.setOnEmpty(() -> closeTab(newTab));
-            container.setOnCloseView(() -> closeTab(newTab));
-            addTab(newTab);
-            selectTab(newTab);
-            terminalTab = newTab;
-        }
-
-        // 创建新的终端子 tab
-        VBox terminalContent = new VBox();
-        terminalContent.getStyleClass().add("editor-panel__view");
-        VBox.setVgrow(terminalContent, Priority.ALWAYS);
-
-        int index = container.getSubTabs().size() + 1;
-        SubTabContainer.SubTab subTab = container.addSubTab("终端 " + index, terminalContent);
-
-        terminalContent.getChildren().setAll(createLoadingContent("正在启动终端..."));
-
-        final Path wd = workingDir != null ? workingDir : resolveWorkingDir();
-        new Thread(() -> {
-            try {
-                PtySession session = ptyTerminalService.createSession(wd);
-                JediTerminalView view = new JediTerminalView();
-                view.startSession(session);
-
-                Platform.runLater(() -> {
-                    subTab.userData.put("session", session);
-                    subTab.userData.put("view", view);
-                    terminalContent.getChildren().setAll(view);
-                    VBox.setVgrow(view, Priority.ALWAYS);
-                    setupTerminalContextMenu(view);
-                    Platform.runLater(view::requestFocus);
-                });
-            } catch (IOException e) {
-                log.error("创建终端会话失败", e);
-                Platform.runLater(() -> terminalContent.getChildren().setAll(
-                        createErrorContent("终端启动失败: " + e.getMessage(),
-                                () -> {
-                                    container.closeSubTab(subTab);
-                                    openTerminal(wd);
-                                })));
-            } catch (Exception e) {
-                log.error("终端初始化异常", e);
-                Platform.runLater(() -> terminalContent.getChildren().setAll(
-                        createErrorContent("终端初始化异常: " + e.getMessage(),
-                                () -> {
-                                    container.closeSubTab(subTab);
-                                    openTerminal(wd);
-                                })));
-            }
-        }).start();
-    }
-
-    private void cleanupTerminalSubTab(SubTabContainer.SubTab subTab) {
-        JediTerminalView view = (JediTerminalView) subTab.userData.get("view");
-        PtySession session = (PtySession) subTab.userData.get("session");
-        if (view != null) {
-            view.closeSession();
-        }
-        if (session != null) {
-            ptyTerminalService.closeSession(session.getSessionId());
-        }
-    }
-
-    @Override
-    public void closeTerminal() {
-        EditorTab terminalTab = findTabByType(ViewType.TERMINAL);
-        if (terminalTab != null) {
-            closeTab(terminalTab);
-        }
-    }
-
-    @Override
-    protected void onTabClosed(EditorTab tab) {
-        if (tab.viewType == ViewType.TERMINAL) {
-            SubTabContainer container = (SubTabContainer) tab.userData.get("container");
-            if (container != null) {
-                for (SubTabContainer.SubTab subTab : container.getSubTabs()) {
-                    cleanupTerminalSubTab(subTab);
-                }
-            }
-        }
     }
 
     // ===== 文件内容（单顶部按钮 + 子 tab 多开） =====
@@ -551,17 +445,6 @@ public class CoderEditorPanelController extends EditorPanelController implements
 
     // ===== 加载与错误状态 =====
 
-    private VBox createLoadingContent(String message) {
-        ProgressIndicator indicator = new ProgressIndicator();
-        indicator.setPrefSize(32, 32);
-        Label label = new Label(message);
-        label.getStyleClass().add("editor-panel__loading-text");
-        VBox box = new VBox(indicator, label);
-        box.setAlignment(Pos.CENTER);
-        box.setSpacing(8);
-        return box;
-    }
-
     private VBox createErrorContent(String message, Runnable retryAction) {
         Label errorLabel = new Label(message);
         errorLabel.getStyleClass().add("editor-panel__error-text");
@@ -579,22 +462,6 @@ public class CoderEditorPanelController extends EditorPanelController implements
     }
 
     // ===== 右键菜单 =====
-
-    private void setupTerminalContextMenu(JediTerminalView view) {
-        ContextMenu menu = new ContextMenu();
-        MenuItem addToChatItem = new MenuItem("添加到对话框");
-        addToChatItem.setOnAction(e -> {
-            String selected = view.getSelectedText();
-            if (selected != null && !selected.isBlank() && indexController != null) {
-                indexController.addTextToChat(selected);
-            }
-        });
-        menu.getItems().add(addToChatItem);
-        view.setOnContextMenuRequested(e -> {
-            menu.show(view, e.getScreenX(), e.getScreenY());
-            e.consume();
-        });
-    }
 
     private void setupCodeAreaContextMenu(CodeArea codeArea, Path filePath) {
         ContextMenu menu = new ContextMenu();

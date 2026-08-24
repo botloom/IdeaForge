@@ -155,15 +155,7 @@ public abstract class AbstractHomePageViewModel {
         return goalActive;
     }
 
-    /**
-     * 工具卡片路由回调：TOOL_CALLS 事件创建的 ToolMessageCard 直接通过此回调路由到 EditorPanel，
-     * 不再进入 messages 列表（消除"加入消息列表再过滤"反模式）。
-     * 仅 active session 的事件会推送；切换 session 时由 Controller 清空 EditorPanel。
-     */
-    @Setter
-    private Consumer<ToolMessageCard> toolCardHandler = _ -> {};
-
-    /** session 切换回调：通知 Controller 清空 EditorPanel 工具卡片，重置 todo 等 */
+    /** session 切换回调：通知 Controller 重置 todo 卡片等 */
     @Setter
     private Consumer<String> sessionActivatedHandler = _ -> {};
 
@@ -175,8 +167,6 @@ public abstract class AbstractHomePageViewModel {
         Disposable subscription;
         /** 当前流式 assistant 消息卡片 */
         AssistantMessageCard currentAssistantCard = null;
-        /** 待响应的工具调用卡片，按 toolCallId 索引 */
-        final Map<String, ToolMessageCard> pendingToolCards = new ConcurrentHashMap<>();
         /** 是否正在流式生成（per-session） */
         volatile boolean isStreaming = false;
         /** 是否暂停（per-session） */
@@ -841,8 +831,6 @@ public abstract class AbstractHomePageViewModel {
             processUserEvent(event, state, isActive);
         } else if (event.isAssistantMessage()) {
             processAssistantEvent(event, state, isActive);
-        } else if (event.isToolResponse()) {
-            processToolEvent(event, state);
         } else {
             log.warn("未处理的事件类型: {}", event.getEventType());
         }
@@ -905,29 +893,6 @@ public abstract class AbstractHomePageViewModel {
                 }
                 state.currentAssistantCard = null;
             }
-
-            // 创建工具调用卡片，缓存到 state.pendingToolCards；
-            // 仅 active session 推送到 EditorPanel（非 active session 的工具不显示）
-            if (e.getToolCalls() != null) {
-                for (MessageEvent.ToolCallInfo tc : e.getToolCalls()) {
-                    ToolMessageCard card = new ToolMessageCard(tc.id(), tc.name(), tc.arguments());
-                    state.pendingToolCards.put(tc.id(), card);
-                    if (isActive) {
-                        toolCardHandler.accept(card);
-                    }
-                }
-            }
-        }
-    }
-
-    private void processToolEvent(MessageEvent e, SessionRuntimeState state) {
-        if (e.getResponses() != null && !e.getResponses().isEmpty()) {
-            for (MessageEvent.ToolResponseInfo resp : e.getResponses()) {
-                ToolMessageCard card = state.pendingToolCards.remove(resp.id());
-                if (card != null) {
-                    card.setResponse(resp.responseData());
-                }
-            }
         }
     }
 
@@ -968,7 +933,6 @@ public abstract class AbstractHomePageViewModel {
         messages.clear();
         if (currentState != null) {
             currentState.savedMessages.clear();
-            currentState.pendingToolCards.clear();
             currentState.currentAssistantCard = null;
         }
         Store.isStreaming.set(false);

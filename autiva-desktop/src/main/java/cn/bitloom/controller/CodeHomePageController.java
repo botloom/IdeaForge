@@ -26,7 +26,6 @@ import org.springframework.stereotype.Component;
 
 import java.io.File;
 import java.nio.file.Path;
-import java.util.ArrayList;
 import java.util.List;
 
 /**
@@ -545,21 +544,7 @@ public class CodeHomePageController extends AbstractHomePageController {
 
     @Override
     public List<ButtonBarHolder.ButtonConfig> getButtonConfigs() {
-        List<ButtonBarHolder.ButtonConfig> configs = new ArrayList<>();
-        // 终端按钮（Coder 模式独有）
-        configs.add(new ButtonBarHolder.ButtonConfig(
-                "terminalButton",
-                "终端",
-                "button-bar__icon-btn",
-                "/cn/bitloom/images/terminal.svg",
-                ButtonBarHolder.Alignment.RIGHT,
-                _ -> {
-                    if (indexController != null) {
-                        indexController.toggleTerminalPanel();
-                    }
-                }));
-        configs.addAll(createCommonButtons());
-        return configs;
+        return createCommonButtons();
     }
 
     @Override

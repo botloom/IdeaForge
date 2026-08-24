@@ -16,8 +16,7 @@ import java.util.concurrent.ConcurrentHashMap;
 /**
  * 持久化 Shell 会话状态（cwd + env）。
  *
- * <p>原由 PtySession 的 Shell 进程维护 cwd，现在改为通过此类的状态文件持久化。
- * 每次命令执行时，cwd 通过命令前缀（cd /d 或 cd）注入。</p>
+ * <p>每次命令执行时，cwd 通过命令前缀（cd /d 或 cd）注入。</p>
  */
 @Slf4j
 public class ShellSession {

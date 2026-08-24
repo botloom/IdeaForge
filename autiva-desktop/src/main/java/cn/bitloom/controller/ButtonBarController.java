@@ -24,10 +24,8 @@ import java.util.ResourceBundle;
 @Component
 public class ButtonBarController implements Initializable {
 
-    /** 需聊天后才显示的右上角视图按钮 id */
-    private static final String[] VIEW_BUTTON_IDS = {
-            "terminalButton", "toolCallsButton", "todoButton"
-    };
+    /** 需聊天后才显示的右上角视图按钮 id（当前已无右侧视图按钮） */
+    private static final String[] VIEW_BUTTON_IDS = {};
 
     @FXML
     private Button sidebarButton;

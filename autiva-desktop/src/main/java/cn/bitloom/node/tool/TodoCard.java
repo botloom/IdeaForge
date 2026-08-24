@@ -25,8 +25,7 @@ public class TodoCard extends VBox {
         getStyleClass().add("chat-message");
         getStyleClass().add("chat-message--tool");
         getStyleClass().add("chat-message--todo");
-        // 卡片宽度跟随 ListView cell，不基于内容自然宽度撑大（与工具卡片 ToolMessageCard 一致：
-        // maxWidth 填满，prefWidth 用 USE_COMPUTED_SIZE 让宽度由容器计算而非被内容撑大）
+        // 卡片宽度填满容器，不基于内容自然宽度撑大
         setMaxWidth(Double.MAX_VALUE);
         setPrefWidth(Region.USE_COMPUTED_SIZE);
         rebuild(todosJson);
@@ -87,7 +86,7 @@ public class TodoCard extends VBox {
             HBox itemRow = new HBox(8);
             itemRow.getStyleClass().add("chat-message__todo-item");
             itemRow.setAlignment(Pos.CENTER_LEFT);
-            // 行宽受限于卡片/容器，避免长内容将 todo 卡片横向撑出面板（与工具卡片 ToolMessageCard 的宽度约束一致）
+            // 行宽受限于卡片/容器，避免长内容将 todo 卡片横向撑开
             itemRow.setMaxWidth(Double.MAX_VALUE);
             itemRow.setPrefWidth(Region.USE_COMPUTED_SIZE);
 
