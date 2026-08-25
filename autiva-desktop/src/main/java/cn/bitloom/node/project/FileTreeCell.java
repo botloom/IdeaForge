@@ -11,6 +11,7 @@ import javafx.scene.control.TreeView;
 import javafx.scene.input.ClipboardContent;
 import javafx.scene.input.Dragboard;
 import javafx.scene.input.TransferMode;
+import lombok.Setter;
 import lombok.extern.slf4j.Slf4j;
 
 import java.util.ArrayList;
@@ -44,18 +45,15 @@ public class FileTreeCell extends TreeCell<FileEntry> {
             "file-tree__file--git-untracked", "file-tree__folder--git-changed"
     );
 
-    /** 全局共享的 Git 状态存储，由 SideBarController 设置 */
+    /** 全局共享的 Git 状态存储，由 SideBarController 设置
+     * -- SETTER --
+     *  设置全局 Git 状态存储（SideBarController 打开项目时注入）。
+     */
+    @Setter
     private static ProjectStatusStore statusStore;
 
     /** 复用图标节点：仅切换 SVG 路径（内部图片缓存命中，切换零开销） */
     private final SvgImageView icon = new SvgImageView();
-
-    /**
-     * 设置全局 Git 状态存储（SideBarController 打开项目时注入）。
-     */
-    public static void setStatusStore(ProjectStatusStore store) {
-        statusStore = store;
-    }
 
     // hover 高亮设计（索引驱动，不使用 CSS :hover 伪类）：
     // :hover 伪类由 mouseEntered/Exited 事件维护；展开/折叠时 VirtualFlow 复用/重排 cell，
