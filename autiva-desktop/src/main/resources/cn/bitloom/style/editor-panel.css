@@ -140,10 +140,6 @@
     -fx-font-family: "SF Pro Text", -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", sans-serif;
 }
 
-.editor-panel__sub-tab--active .editor-panel__sub-tab-title {
-    -fx-text-fill: -autiva-blue;
-}
-
 .editor-panel__sub-tab-add {
     -fx-background-color: transparent;
     -fx-background-radius: 6;

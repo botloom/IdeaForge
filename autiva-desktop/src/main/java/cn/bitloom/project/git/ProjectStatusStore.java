@@ -6,6 +6,7 @@ import org.springframework.stereotype.Component;
 
 import java.nio.file.Path;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 
 /**
@@ -43,11 +44,17 @@ public class ProjectStatusStore {
 
     /**
      * 由状态源（打开项目 / 文件监听触发）注入新状态并发送刷新信号。
+     * 根与状态映射均未变化时不翻转刷新信号——避免进入目录树等场景下
+     * 无意义的状态刷新触发整树/编辑器重绘。
      */
     public void update(Path root, Map<Path, GitFileStatus> statusMap) {
+        Map<Path, GitFileStatus> newMap = statusMap != null ? statusMap : Map.of();
+        if (Objects.equals(root, this.projectRoot) && Objects.equals(newMap, this.statusMap)) {
+            return;
+        }
         this.projectRoot = root;
-        this.statusMap = statusMap != null ? statusMap : Map.of();
-        this.changedDirs = gitStatusService.collectChangedDirs(this.statusMap);
+        this.statusMap = newMap;
+        this.changedDirs = gitStatusService.collectChangedDirs(newMap);
         this.refreshSignal.set(!this.refreshSignal.get());
     }
 

@@ -237,6 +237,16 @@
     -fx-background-color: rgba(0, 0, 0, 0.05);
 }
 
+/* 目录树视图顶部 header：本身无点击行为，禁用 hover 灰底与手型光标。
+   从会话列表切入目录树时，视图切换会使 JavaFX 对鼠标下新出现的 header
+   合成 mouseEntered，hover 灰底一闪而过表现为灰色阴影闪烁；去除后该
+   合成事件不再产生视觉变化。 */
+.sidebar__project-header--static,
+.sidebar__project-header--static:hover {
+    -fx-background-color: transparent;
+    -fx-cursor: default;
+}
+
 .sidebar__project-icon {
     -fx-min-width: 18px;
     -fx-alignment: center;
@@ -424,8 +434,17 @@
     -fx-font-weight: 500;
 }
 
-/* 注：目录树行不使用 :hover / :pressed 背景反馈（折叠时 VirtualFlow 复用 cell 会使这两类瞬态残留/闪灭，
-   造成闪烁）。仅保留 :selected 选中蓝高亮，状态绑定 item 本身、稳定不闪。 */
+/* hover 灰影：由 FileTreeCell 按行索引维护 file-tree__cell--hover 样式类驱动，
+   不使用 CSS :hover 伪类——展开/折叠时 VirtualFlow 复用/重排 cell，伪类事件跨帧
+   到达会瞬时丢失再恢复（表现为点击折叠箭头时灰影闪烁）；按索引驱动时接管行的
+   cell 立即命中索引恢复高亮，无视觉间隙。选中行不加 hover 类（蓝高亮优先）。
+   与其它 sidebar 选项项的 hover 灰底保持一致。 */
+.sidebar__tree-container .tree-view .tree-cell.file-tree__cell--hover {
+    -fx-background-color: rgba(0, 0, 0, 0.05);
+}
+
+/* 注：目录树行不使用 :pressed 背景反馈（折叠时 VirtualFlow 复用 cell 会使按压态瞬态残留/闪灭）。
+   仅保留 :selected 选中蓝高亮，状态绑定 item 本身、稳定不闪。 */
 
 
 /* 文件类型文字颜色衬点亮色图标，形成清晰的类型区分 */

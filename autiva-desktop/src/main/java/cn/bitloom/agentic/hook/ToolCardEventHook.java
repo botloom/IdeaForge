@@ -29,10 +29,10 @@ import java.util.concurrent.ConcurrentLinkedDeque;
 @Slf4j
 public class ToolCardEventHook implements IAgentHook {
 
-    /** 需要做展示卡片的特殊工具集合。Task 纳入其中以触发 UICardEvent 结束当前流式话语
-     * （Task 调用前若有 AI 文本，需在此处闭合该 assistant 冒泡，避免子智能体结束后的
-     *  新文本被追加到上方旧冒泡）；Task 自身的 TaskCard 展示不受影响，见 ViewModel 特判。 */
-    private static final Set<String> CARDED_TOOLS = Set.of("Read", "Write", "Edit", "Command", "Task");
+    /** 需要做展示卡片的特殊工具集合。Task 纳入其中以触发 UICardEvent 结束当前流式话语、
+     *  TodoWrite 同理（调用前若有 AI 文本，需闭合该 assistant 冒泡，避免其后的新文本被追加到
+     *  上方旧冒泡）；Task 自身由 TaskCard、TodoWrite 由 TodoCard 展示，均不参与 ToolCallCard 组。 */
+    private static final Set<String> CARDED_TOOLS = Set.of("Read", "Write", "Edit", "Command", "Task", "TodoWrite");
 
     /** 每 session 按 FIFO 记录待完成的工具 callId，与 afterToolCall 配对 */
     private final Deque<String> pendingCallIds = new ConcurrentLinkedDeque<>();

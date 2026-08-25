@@ -402,6 +402,9 @@ public class CoderEditorPanelController extends EditorPanelController implements
 
     /**
      * 订阅 Git 状态刷新信号：对已打开文件子 tab 重新着色（并重读无未保存改动的文件内容）。
+     * <p>
+     * 文件重读与行级 diff（磁盘 IO + JGit）在后台线程执行，FX 线程仅做 UI 应用；
+     * 应用前重新校验 dirty 状态，避免覆盖后台计算期间用户做出的编辑。
      */
     private void subscribeStatusRefresh() {
         if (refreshSubscribed) {
@@ -419,17 +422,36 @@ public class CoderEditorPanelController extends EditorPanelController implements
                         String pathStr = (String) subTab.userData.get("path");
                         if (pathStr == null) continue;
                         Path p = Path.of(pathStr);
-                        // 无未保存改动时重读文件内容，确保随外部变化更新
-                        if (Boolean.FALSE.equals(subTab.userData.get("dirty")) && Files.isRegularFile(p)) {
-                            // 重新计算行级改动并更新行号着色引用
-                            if (subTab.userData.get("lineStatus") instanceof AtomicReference<?> ref) {
-                                @SuppressWarnings("unchecked")
-                                AtomicReference<Map<Integer, GitFileStatus>> lineRef =
-                                        (AtomicReference<Map<Integer, GitFileStatus>>) ref;
-                                lineRef.set(computeLineStatus(p));
+                        // 有未保存改动（dirty=true）或仍在加载（dirty=null）的 tab 仅刷新标题着色，不重读内容
+                        if (!Boolean.FALSE.equals(subTab.userData.get("dirty"))) {
+                            applyGitStyleToSubTab(subTab, p);
+                            continue;
+                        }
+                        // 无未保存改动：后台重读内容 + 重算行级改动，完成后回 FX 线程应用
+                        gitRefreshExecutor.execute(() -> {
+                            if (!Files.isRegularFile(p)) {
+                                return;
                             }
+                            final String fresh;
+                            final Map<Integer, GitFileStatus> lineStatus;
                             try {
-                                String fresh = Files.readString(p);
+                                fresh = Files.readString(p);
+                                lineStatus = computeLineStatus(p);
+                            } catch (IOException e) {
+                                log.warn("重新读取文件失败: {}", p, e);
+                                return;
+                            }
+                            Platform.runLater(() -> {
+                                // 应用前校验：期间用户已编辑（变脏）则放弃本次刷新
+                                if (!Boolean.FALSE.equals(subTab.userData.get("dirty"))) {
+                                    return;
+                                }
+                                if (subTab.userData.get("lineStatus") instanceof AtomicReference<?> ref) {
+                                    @SuppressWarnings("unchecked")
+                                    AtomicReference<Map<Integer, GitFileStatus>> lineRef =
+                                            (AtomicReference<Map<Integer, GitFileStatus>>) ref;
+                                    lineRef.set(lineStatus.isEmpty() ? Map.of() : lineStatus);
+                                }
                                 if (subTab.content instanceof VBox vbox) {
                                     vbox.lookupAll(".editor-panel__code-area").forEach(n -> {
                                         if (n instanceof CodeArea ca) {
@@ -448,11 +470,9 @@ public class CoderEditorPanelController extends EditorPanelController implements
                                         }
                                     });
                                 }
-                            } catch (IOException e) {
-                                log.warn("重新读取文件失败: {}", p, e);
-                            }
-                        }
-                        applyGitStyleToSubTab(subTab, p);
+                                applyGitStyleToSubTab(subTab, p);
+                            });
+                        });
                     }
                 }));
     }

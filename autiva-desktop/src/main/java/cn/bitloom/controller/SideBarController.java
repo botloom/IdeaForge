@@ -7,12 +7,14 @@ import cn.bitloom.agentic.session.FileSystemSessionManager;
 import cn.bitloom.agentic.session.Session;
 import cn.bitloom.constant.AgentMode;
 import cn.bitloom.holder.PageHolder;
+import cn.bitloom.node.project.FileEntry;
 import cn.bitloom.node.project.FileTreeCell;
 import cn.bitloom.node.project.LazyTreeItem;
 import cn.bitloom.node.svg.SvgImageView;
 import cn.bitloom.project.FileTreeService;
 import cn.bitloom.project.ProjectInfo;
 import cn.bitloom.project.ProjectRegistry;
+import cn.bitloom.project.git.GitFileStatus;
 import cn.bitloom.project.git.GitStatusService;
 import cn.bitloom.project.git.ProjectFileWatcherService;
 import cn.bitloom.project.git.ProjectStatusStore;
@@ -42,7 +44,6 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
 import java.net.URL;
-import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.*;
@@ -66,10 +67,17 @@ public class SideBarController implements Initializable, PageHolder {
     private final ProjectFileWatcherService projectFileWatcherService;
     private final WindowManager windowManager;
     private Path watchedProjectPath = null;
-    private TreeView<Path> currentTreeView = null;
+    private TreeView<FileEntry> currentTreeView = null;
     /** 已构建的目录树缓存（切回会话列表后再次进入时复用，保留展开/选中状态） */
-    private TreeView<Path> cachedTreeView = null;
+    private TreeView<FileEntry> cachedTreeView = null;
     private String cachedTreeProjectId = null;
+    /** Git 状态后台计算线程：全仓 git status 含大量磁盘 IO，不得在 FX 线程执行 */
+    private final java.util.concurrent.ExecutorService statusExecutor =
+            java.util.concurrent.Executors.newSingleThreadExecutor(r -> {
+                Thread t = new Thread(r, "autiva-tree-status");
+                t.setDaemon(true);
+                return t;
+            });
 
     @FXML
     @Getter
@@ -449,25 +457,44 @@ public class SideBarController implements Initializable, PageHolder {
      */
     private void showProjectTree(ProjectInfo project) {
         Path projectPath = Paths.get(project.path());
-        this.watchedProjectPath = projectPath.toAbsolutePath().normalize();
+        Path normalizedRoot = projectPath.toAbsolutePath().normalize();
+        this.watchedProjectPath = normalizedRoot;
+        // 先断开当前树引用，使随后的状态更新触发的 refreshSignal 不会作用到旧树上
+        this.currentTreeView = null;
 
-        // 先更新 Git 状态：此时 currentTreeView 尚为 null，refreshSignal 不会触发整树重建，
-        // 避免打开目录树后立刻 setRoot 重建导致的闪烁；树渲染时单元格直接读取新状态着色。
-        projectStatusStore.update(projectPath, gitStatusService.queryStatusMap(projectPath));
-
-        TreeView<Path> treeView;
+        TreeView<FileEntry> treeView;
         if (cachedTreeView != null && cachedTreeProjectId != null && cachedTreeProjectId.equals(project.id())) {
-            // 复用已构建的目录树，保留之前展开/选中的节点状态
+            // 复用已构建的目录树，保留之前展开/选中的节点状态。
+            // 不在此处 refresh()：此刻 statusStore 仍是旧状态，重绘无意义；
+            // 后台状态计算完成后经 refreshSignal 触发 refreshProjectTree 统一重绘着色，
+            // 也避免进入瞬间两次全量单元格重建造成闪烁。
             treeView = cachedTreeView;
-            // 单元格仍是旧状态着色：refresh() 仅强制单元格重绘（updateItem 重跑），
-            // 不重建树结构，展开/选中/滚动状态全部保留
-            treeView.refresh();
         } else {
             treeView = buildNewTreeView();
             cachedTreeView = treeView;
             cachedTreeProjectId = project.id();
         }
         this.currentTreeView = treeView;
+
+        // Git 状态后台计算：全仓 git status 为重 IO，在 FX 线程同步执行会卡住目录树打开。
+        // 完成后经 refreshSignal 触发树单元格重绘着色（此时树已挂好，增量重扫幂等安全）。
+        statusExecutor.execute(() -> {
+            Map<Path, GitFileStatus> statusMap;
+            try {
+                statusMap = gitStatusService.queryStatusMap(projectPath);
+            } catch (Exception e) {
+                log.warn("查询 Git 状态失败: {}", projectPath, e);
+                statusMap = Map.of();
+            }
+            Map<Path, GitFileStatus> finalMap = statusMap;
+            Platform.runLater(() -> {
+                // 应用前校验：期间已切换到其他项目目录树时丢弃本次结果，避免旧状态覆盖新项目着色
+                Path viewing = watchedProjectPath;
+                if (viewing == null || viewing.equals(normalizedRoot)) {
+                    projectStatusStore.update(normalizedRoot, finalMap);
+                }
+            });
+        });
 
         // 启动文件监听，文件变化时自动刷新 Git 状态与目录树/文件视图
         projectFileWatcherService.watch(projectPath);
@@ -480,29 +507,30 @@ public class SideBarController implements Initializable, PageHolder {
         treeContainer.getStyleClass().add("sidebar__tree-container");
         VBox.setVgrow(treeView, Priority.ALWAYS);
 
-        // 目录树视图需要撑满 ScrollPane 高度
-        historyScroll.setFitToHeight(true);
+        // 先挂上目录树再切 fitToHeight：若反之，fit 翻转会瞬时作用于仍挂着的卡片列表
+        // 使其被纵向拉伸一帧，表现为进入目录树瞬间项目卡片闪烁。
         historyScroll.setContent(treeContainer);
+        historyScroll.setFitToHeight(true);
     }
 
     /** 新建一棵懒加载目录树并挂接 Git 刷新信号监听。 */
-    private TreeView<Path> buildNewTreeView() {
-        TreeView<Path> treeView = new TreeView<>();
+    private TreeView<FileEntry> buildNewTreeView() {
+        TreeView<FileEntry> treeView = new TreeView<>();
         FileTreeCell.setStatusStore(projectStatusStore);
         treeView.setCellFactory(t -> new FileTreeCell());
         treeView.setShowRoot(false);
-        // 双击文件在右侧编辑器面板展示内容
+        // 双击文件在右侧编辑器面板展示内容（目录性读取 FileEntry 缓存标志，零 IO）
         treeView.setOnMouseClicked(event -> {
             if (event.getClickCount() == 2) {
-                TreeItem<Path> selected = treeView.getSelectionModel().getSelectedItem();
-                if (selected != null && Files.isRegularFile(selected.getValue())
+                TreeItem<FileEntry> selected = treeView.getSelectionModel().getSelectedItem();
+                if (selected != null && !selected.getValue().directory()
                         && indexController != null) {
-                    indexController.showFileInPanel(selected.getValue());
+                    indexController.showFileInPanel(selected.getValue().path());
                 }
             }
         });
         try {
-            TreeItem<Path> root = fileTreeService.buildFileTree(watchedProjectPath);
+            TreeItem<FileEntry> root = fileTreeService.buildFileTree(watchedProjectPath);
             treeView.setRoot(root);
         } catch (Exception e) {
             log.error("构建侧边栏目录树失败: {}", watchedProjectPath, e);
@@ -511,9 +539,13 @@ public class SideBarController implements Initializable, PageHolder {
     }
 
     /**
-     * 文件变化时增量同步目录树：仅触发已在树中（已加载/已展开）的各目录重扫，
-     * 复用原 LazyTreeItem 实例，因此整树结构、展开/选中状态全部保留，不会重建导致折叠。
-     * 新增/删除的文件在各自父目录的重扫 diff 后即时出现/消失。
+     * 文件变化时增量同步目录树：仅重扫当前展开（用户可见）的目录，
+     * 复用原 LazyTreeItem 实例，整树结构、展开/选中状态全部保留。
+     * 折叠的子树不预扫描——再次展开时节点自身会补扫最新快照。
+     * <p>
+     * Git 着色刷新只对可见单元格做样式类 diff，绝不调用 {@code TreeView.refresh()}：
+     * refresh() 会销毁并重建全部可见单元格（recreateCells），进入目录树后
+     * 后台 Git 状态完成的信号会触发它，表现为整树闪烁（退出路径无此异步链路，故不闪）。
      */
     private void refreshProjectTree() {
         if (watchedProjectPath == null || currentTreeView == null
@@ -521,24 +553,33 @@ public class SideBarController implements Initializable, PageHolder {
             return;
         }
         try {
-            collectLoadedAndRescan(currentTreeView.getRoot());
-            // 仅重绘现有单元格，使 Git 着色读最新状态；不重建树结构
-            currentTreeView.refresh();
+            rescanExpanded(currentTreeView.getRoot());
+            // 仅重算可见单元格的 Git 着色样式类（内部无变化时跳过），不重建单元格
+            currentTreeView.lookupAll(".tree-cell").forEach(node -> {
+                if (node instanceof FileTreeCell cell) {
+                    cell.refreshGitStyles();
+                }
+            });
         } catch (Exception e) {
             log.warn("刷新目录树失败: {}", watchedProjectPath, e);
         }
     }
 
-    /** 递归为每个已加载的目录节点触发增量重扫。 */
-    private void collectLoadedAndRescan(TreeItem<Path> node) {
-        if (node == null || node.getValue() == null) {
+    /** 递归重扫本节点及其展开后代（未展开子树跳过，展开时会自动补扫）。 */
+    private void rescanExpanded(TreeItem<FileEntry> node) {
+        if (node == null) {
             return;
         }
         if (node instanceof LazyTreeItem lazy) {
             lazy.rescan();
         }
-        for (TreeItem<Path> child : node.getChildren()) {
-            collectLoadedAndRescan(child);
+        if (!node.isExpanded()) {
+            return;
+        }
+        for (TreeItem<FileEntry> child : node.getChildren()) {
+            if (child.isExpanded()) {
+                rescanExpanded(child);
+            }
         }
     }
 
@@ -582,7 +623,6 @@ public class SideBarController implements Initializable, PageHolder {
         treeIcon.setFitHeight(14);
         treeIcon.setSvgPath("/cn/bitloom/images/file-tree.svg");
         treeBtn.setGraphic(treeIcon);
-        treeBtn.setVisible(false);
         if (treeActive) {
             // 仅切换行为为返回会话列表，不保持选中高亮态
             treeBtn.setOnAction(e -> showHistoryList());
@@ -594,7 +634,7 @@ public class SideBarController implements Initializable, PageHolder {
             });
         }
 
-        // 新建对话按钮（悬浮显示，行为与卡片一致）
+        // 新建对话按钮（行为与卡片一致）
         Button newChatBtn = new Button();
         newChatBtn.getStyleClass().add("sidebar__history-delete-btn");
         SvgImageView newChatIcon = new SvgImageView();
@@ -602,7 +642,6 @@ public class SideBarController implements Initializable, PageHolder {
         newChatIcon.setFitHeight(14);
         newChatIcon.setSvgPath("/cn/bitloom/images/chat-new.svg");
         newChatBtn.setGraphic(newChatIcon);
-        newChatBtn.setVisible(false);
         newChatBtn.setOnAction(e -> {
             e.consume();
             AbstractHomePageViewModel vm = currentViewModel();
@@ -618,11 +657,11 @@ public class SideBarController implements Initializable, PageHolder {
 
         header.getChildren().addAll(folderIcon, nameLabel, spacer, treeBtn, newChatBtn);
 
-        header.setOnMouseEntered(e -> { newChatBtn.setVisible(true); treeBtn.setVisible(true); });
-        header.setOnMouseExited(e -> {
-            newChatBtn.setVisible(false);
-            treeBtn.setVisible(false);
-        });
+        // 目录树头部本身无点击行为：禁用 hover 灰底与手型光标（误导性可点击 affordance），
+        // 按钮常驻显示。从会话列表切入目录树时，mouseReleased 后场景图替换会使 JavaFX
+        // 对鼠标下新出现的 header 合成 mouseEntered——hover 灰底一闪而过，
+        // 表现为"项目卡片灰色阴影闪烁"；去除 hover 后该合成事件不再产生任何视觉变化。
+        header.getStyleClass().add("sidebar__project-header--static");
 
         return header;
     }
@@ -633,8 +672,10 @@ public class SideBarController implements Initializable, PageHolder {
     private void showHistoryList() {
         activeTreeProject = null;
         detachProjectTree();
-        historyScroll.setFitToHeight(false);
+        // 先挂回卡片列表再解除 fitToHeight：若反之，fit 翻转会瞬时作用于仍挂着的目录树
+        // 使树先发生重布局、再替换为卡片列表，表现为退出目录树瞬间闪烁。
         historyScroll.setContent(historyList);
+        historyScroll.setFitToHeight(false);
     }
 
     /**
@@ -806,6 +847,12 @@ public class SideBarController implements Initializable, PageHolder {
 
     public boolean isSidebarVisible() {
         return this.sideBar != null && this.sideBar.isVisible();
+    }
+
+    /** 应用关闭时释放 Git 状态后台计算线程 */
+    @jakarta.annotation.PreDestroy
+    public void destroy() {
+        statusExecutor.shutdownNow();
     }
 
 }

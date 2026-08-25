@@ -3,16 +3,27 @@ package cn.bitloom.node.svg;
 import javafx.scene.image.Image;
 import javafx.scene.image.ImageView;
 import lombok.Getter;
+import org.apache.batik.transcoder.TranscoderException;
 import org.apache.batik.transcoder.TranscoderInput;
 import org.apache.batik.transcoder.TranscoderOutput;
 import org.apache.batik.transcoder.image.PNGTranscoder;
 
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
+import java.io.IOException;
 import java.io.InputStream;
+import java.util.concurrent.ConcurrentHashMap;
 
 @Getter
 public class SvgImageView extends ImageView {
+
+    /**
+     * 已转码图片缓存：key = svgPath|宽x高|strokeOverride。
+     * Batik 转码（SVG 解析 + 渲染 + PNG 编码 + 解码）开销大，
+     * 目录树等高频渲染场景必须命中缓存而非每次重新转码。
+     * 同一 Image 实例可安全共享给多个 ImageView。
+     */
+    private static final ConcurrentHashMap<String, Image> IMAGE_CACHE = new ConcurrentHashMap<>();
 
     private String svgPath;
     private boolean loaded = false;
@@ -63,10 +74,21 @@ public class SvgImageView extends ImageView {
             return;
         }
         loaded = true;
+        String key = svgPath + "|" + (int) getFitWidth() + "x" + (int) getFitHeight()
+                + "|" + (strokeOverride == null ? "" : strokeOverride);
+        try {
+            setImage(IMAGE_CACHE.computeIfAbsent(key, k -> transcode()));
+        } catch (Exception e) {
+            System.err.println("Failed to load SVG: " + svgPath + ", " + e.getMessage());
+        }
+    }
+
+    /** 执行一次 Batik SVG→PNG 转码（仅在缓存未命中时调用）。 */
+    private Image transcode() {
         try (InputStream inputStream = SvgImageView.class.getResourceAsStream(svgPath)) {
             if (inputStream == null) {
                 System.err.println("Resource not found: " + svgPath);
-                return;
+                return null;
             }
             String svgText = new String(inputStream.readAllBytes(), java.nio.charset.StandardCharsets.UTF_8);
             if (strokeOverride != null) {
@@ -83,10 +105,9 @@ public class SvgImageView extends ImageView {
 
             transcoder.transcode(new TranscoderInput(bais), new TranscoderOutput(baos));
 
-            Image fxImage = new Image(new ByteArrayInputStream(baos.toByteArray()));
-            setImage(fxImage);
-        } catch (Exception e) {
-            System.err.println("Failed to load SVG: " + svgPath + ", " + e.getMessage());
+            return new Image(new ByteArrayInputStream(baos.toByteArray()));
+        } catch (IOException | TranscoderException e) {
+            throw new RuntimeException(e);
         }
     }
 }

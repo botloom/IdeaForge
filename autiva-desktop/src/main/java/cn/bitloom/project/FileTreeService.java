@@ -1,6 +1,7 @@
 package cn.bitloom.project;
 
 import cn.bitloom.agentic.tool.ToolUtils;
+import cn.bitloom.node.project.FileEntry;
 import cn.bitloom.node.project.LazyTreeItem;
 import javafx.scene.control.TreeItem;
 import org.springframework.stereotype.Component;
@@ -8,7 +9,6 @@ import org.springframework.stereotype.Component;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import java.util.stream.Stream;
@@ -16,7 +16,7 @@ import java.util.stream.Stream;
 /**
  * 文件树服务
  * 构建项目目录树，使用 LazyTreeItem 实现延迟加载和正确的目录展开行为。
- * 子节点扫描（文件系统 IO）在后台线程执行，避免阻塞 UI 线程。
+ * 子节点扫描（文件系统 IO）在共享后台线程串行执行，避免阻塞 UI 线程。
  */
 @Component
 public class FileTreeService {
@@ -25,41 +25,38 @@ public class FileTreeService {
      * 构建文件树
      *
      * @param rootPath 项目根路径
-     * @return TreeItem 根节点
+     * @return TreeItem 根节点（setExpanded(true) 触发首次子节点后台扫描）
      */
-    public TreeItem<Path> buildFileTree(Path rootPath) {
-        LazyTreeItem rootItem = createLazyItem(rootPath);
+    public TreeItem<FileEntry> buildFileTree(Path rootPath) {
+        LazyTreeItem rootItem = createLazyItem(new FileEntry(rootPath, true));
         rootItem.setExpanded(true);
         return rootItem;
     }
 
     /** 创建懒加载节点，递归绑定后台扫描函数与子节点工厂。 */
-    private LazyTreeItem createLazyItem(Path path) {
-        return new LazyTreeItem(path, this::scanSortedChildren, this::createLazyItem);
+    private LazyTreeItem createLazyItem(FileEntry entry) {
+        return new LazyTreeItem(entry, this::scanChildren, this::createLazyItem);
     }
 
     /**
-     * 后台线程执行：扫描目录并返回排序、过滤后的子路径列表。
-     * 注意：子节点实际 Path 在挂载时由 LazyTreeItem 通过扫描结果确定；
-     * 此处返回的 Path 即为待挂载子节点。
+     * 后台线程执行：单次遍历完成忽略过滤与目录分类（每个条目仅一次 stat 调用），
+     * 排序直接使用已捕获的目录标志（目录优先 + 文件名大小写不敏感），
+     * 避免排序比较器反复触发文件系统调用。
      */
-    private List<Path> scanSortedChildren(Path parentPath) {
+    private List<FileEntry> scanChildren(Path parentPath) {
         if (!Files.isDirectory(parentPath)) {
             return List.of();
         }
-        List<Path> result = new ArrayList<>();
         try (Stream<Path> stream = Files.list(parentPath)) {
-            stream.sorted(Comparator
-                            .comparing((Path p) -> !Files.isDirectory(p))
-                            .thenComparing(p -> p.getFileName().toString(), String.CASE_INSENSITIVE_ORDER))
-                    .forEach(child -> {
-                        if (!ToolUtils.isIgnoredPath(child)) {
-                            result.add(child);
-                        }
-                    });
+            return stream
+                    .filter(p -> !ToolUtils.isIgnoredPath(p))
+                    .map(p -> new FileEntry(p, Files.isDirectory(p)))
+                    .sorted(Comparator
+                            .comparing((FileEntry e) -> !e.directory())
+                            .thenComparing(FileEntry::name, String.CASE_INSENSITIVE_ORDER))
+                    .toList();
         } catch (IOException e) {
             return List.of();
         }
-        return result;
     }
 }

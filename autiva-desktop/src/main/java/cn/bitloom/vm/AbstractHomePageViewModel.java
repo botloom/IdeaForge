@@ -26,8 +26,7 @@ import cn.bitloom.agentic.memory.MemoryConsolidator;
 import cn.bitloom.agentic.model.ModelFactory;
 import cn.bitloom.agentic.model.ModelTypeEnum;
 import cn.bitloom.agentic.session.*;
-import cn.bitloom.agentic.session.compaction.RecursiveSummarizationCompactionStrategy;
-import cn.bitloom.agentic.session.compaction.StagedCompactionStrategy;
+import cn.bitloom.agentic.session.compaction.TokenCountCompactionStrategy;
 import cn.bitloom.agentic.session.compaction.TokenCountTrigger;
 import cn.bitloom.agentic.skill.SkillManager;
 import cn.bitloom.agentic.tool.Toolkit;
@@ -93,6 +92,9 @@ public abstract class AbstractHomePageViewModel {
 
     /** Task（子智能体）工具名：由 ToolUIBridge 单独渲染 TaskCard，不参与 ToolCallCard 组。 */
     private static final String TASK_TOOL_NAME = "Task";
+
+    /** TodoWrite 工具名：由 ToolUIBridge 单独渲染 TodoCard，且需要闭合 AI 冒泡但同样不创建 ToolCallCard。 */
+    private static final String TODO_TOOL_NAME = "TodoWrite";
 
     protected final FileSystemSessionManager sessionManager;
     protected final AgentDefinitionManager definitionManager;
@@ -454,22 +456,19 @@ public abstract class AbstractHomePageViewModel {
 
         List<Advisor> advisors = new ArrayList<>();
 
-        // 四步压缩管线（低成本优先：滑动窗口裁剪 → 旧工具结果占位符化 → 水位检查 → LLM 摘要）
-        StagedCompactionStrategy stagedStrategy = StagedCompactionStrategy.builder(
-                        RecursiveSummarizationCompactionStrategy.builder(
-                                ChatClient.builder(chatModel).build())
-                        .build())
-                .tokenThreshold(100000)
+        // 纯 token 压缩：DS 上下文 1M，达到 80%（800k token）时触发，压缩到约 60%（480k token）
+        TokenCountCompactionStrategy tokenStrategy = TokenCountCompactionStrategy.builder()
+                .maxTokens(480000)
                 .build();
         SessionMemoryAdvisor sessionMemoryAdvisor = SessionMemoryAdvisor.builder(sessionManager)
                 .defaultUserId(uid)
                 .messageFilter(MessageFilter.byMessageType(MessageType.USER, MessageType.ASSISTANT, MessageType.TOOL)
                         .and(MessageFilter.skipEmptyMessages()))
                 .compactionTrigger(TokenCountTrigger.builder()
-                        .threshold(100000)
+                        .threshold(800000)
                         .tokenCountEstimator(new JTokkitTokenCountEstimator())
                         .build())
-                .compactionStrategy(stagedStrategy)
+                .compactionStrategy(tokenStrategy)
                 .build();
         advisors.add(sessionMemoryAdvisor);
 
@@ -545,7 +544,7 @@ public abstract class AbstractHomePageViewModel {
                 .hooks(hooks)
                 .advisors(advisors)
                 // reactive_compact：上下文超长被 API 拒绝时强制压缩（绕过触发器）后重试一次
-                .reactiveCompactor(sid -> sessionManager.compact(sid, req -> true, stagedStrategy))
+                .reactiveCompactor(sid -> sessionManager.compact(sid, req -> true, tokenStrategy))
                 .build();
         log.info("构建智能体: agentId={}", agentId);
         return agent;
@@ -859,8 +858,9 @@ public abstract class AbstractHomePageViewModel {
     private void handleToolCallCreated(UICardEvent event, SessionRuntimeState state, boolean isActive, String callId) {
         // 任何工具执行前先闭合当前流式话语，保证工具结束后的新 AI 文本新起一个冒泡
         finishStreamingText(state, isActive);
-        if (TASK_TOOL_NAME.equals(event.getToolName())) {
-            // Task 由 ToolUIBridge 单独渲染 TaskCard，此处仅需闭合当前话语，不创建冗余的 ToolCallCard
+        if (TASK_TOOL_NAME.equals(event.getToolName()) || TODO_TOOL_NAME.equals(event.getToolName())) {
+            // Task 由 ToolUIBridge 单独渲染 TaskCard、TodoWrite 渲染 TodoCard，
+            // 此处仅需闭合当前话语（保证工具结束后新 AI 文本新起冒泡），不创建冗余的 ToolCallCard
             return;
         }
         if (callId != null) {
@@ -887,8 +887,8 @@ public abstract class AbstractHomePageViewModel {
 
     /** 工具调用结束：从组内活动集合移除，组内全部结束后折叠。 */
     private void handleToolCallFinished(SessionRuntimeState state, boolean isActive, String callId, String toolName) {
-        if (TASK_TOOL_NAME.equals(toolName)) {
-            return; // Task 不参与 ToolCallCard 组管理
+        if (TASK_TOOL_NAME.equals(toolName) || TODO_TOOL_NAME.equals(toolName)) {
+            return; // Task / TodoWrite 不参与 ToolCallCard 组管理
         }
         if (callId != null) {
             state.activeToolCallIds.remove(callId);

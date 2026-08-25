@@ -14,8 +14,7 @@ import cn.bitloom.agentic.session.EventFilter;
 import cn.bitloom.agentic.session.FileSystemSessionManager;
 import cn.bitloom.agentic.session.MessageFilter;
 import cn.bitloom.agentic.session.Session;
-import cn.bitloom.agentic.session.compaction.RecursiveSummarizationCompactionStrategy;
-import cn.bitloom.agentic.session.compaction.StagedCompactionStrategy;
+import cn.bitloom.agentic.session.compaction.TokenCountCompactionStrategy;
 import cn.bitloom.agentic.session.compaction.TokenCountTrigger;
 import cn.bitloom.agentic.tool.Toolkit;
 import cn.bitloom.agentic.tool.command.ShellSession;
@@ -103,10 +102,9 @@ public class SubAgentFactory {
 
         List<Advisor> advisors = new ArrayList<>();
 
-        // 四步压缩管线（低成本优先：滑动窗口裁剪 → 旧工具结果占位符化 → 水位检查 → LLM 摘要）
-        StagedCompactionStrategy stagedStrategy = StagedCompactionStrategy.builder(
-                RecursiveSummarizationCompactionStrategy.builder(ChatClient.builder(chatModel).build()).build())
-                .tokenThreshold(100000)
+        // 纯 token 压缩：DS 上下文 1M，达到 80%（800k token）时触发，压缩到约 60%（480k token）
+        TokenCountCompactionStrategy tokenStrategy = TokenCountCompactionStrategy.builder()
+                .maxTokens(480000)
                 .build();
 
         // EventFilter.forBranch(branch): 子智能体仅能看到自己 branch 的事件 + root 事件
@@ -116,10 +114,10 @@ public class SubAgentFactory {
                 .messageFilter(MessageFilter.byMessageType(MessageType.USER, MessageType.ASSISTANT, MessageType.TOOL)
                         .and(MessageFilter.skipEmptyMessages()))
                 .compactionTrigger(TokenCountTrigger.builder()
-                        .threshold(100000)
+                        .threshold(800000)
                         .tokenCountEstimator(new JTokkitTokenCountEstimator())
                         .build())
-                .compactionStrategy(stagedStrategy)
+                .compactionStrategy(tokenStrategy)
                 .build();
         advisors.add(sessionMemoryAdvisor);
 
@@ -156,7 +154,7 @@ public class SubAgentFactory {
                 .hooks(buildBaseHooks())
                 .advisors(advisors)
                 // reactive_compact：上下文超长被 API 拒绝时强制压缩（绕过触发器）后重试一次
-                .reactiveCompactor(sid -> sessionManager.compact(sid, req -> true, stagedStrategy))
+                .reactiveCompactor(sid -> sessionManager.compact(sid, req -> true, tokenStrategy))
                 .build();
         return agent;
     }

@@ -46,26 +46,27 @@ Git 服务（Spring `@Component`），仅查询 Git 信息，不支持修改操�
 - 自动检测 .git 目录存在性
 
 ### FileTreeService
-文件树构建服务（Spring `@Component`），为编辑器面板构建项目目录树。使用 `LazyTreeItem`（位于 `cn.bitloom.node.project` 包）替代原生 `TreeItem<Path>`，实现正确的目录展开行为和懒加载。
+文件树构建服务（Spring `@Component`），为编辑器面板构建项目目录树。使用 `LazyTreeItem`（位于 `cn.bitloom.node.project` 包）替代原生 `TreeItem`，实现正确的目录展开行为和懒加载。
 
 **核心方法：**
-- `TreeItem<Path> buildFileTree(Path rootPath)`: 构建文件树根节点（`LazyTreeItem`），并通过 `setExpanded(true)` 触发首次子节点加载
-- `private void loadChildren(TreeItem<Path> parent)`: 加载子节点（私有方法，作为 `LazyTreeItem` 的展开回调）
+- `TreeItem<FileEntry> buildFileTree(Path rootPath)`: 构建文件树根节点（`LazyTreeItem`），并通过 `setExpanded(true)` 触发首次子节点后台扫描
+- `private List<FileEntry> scanChildren(Path parentPath)`: 后台线程扫描目录，单次遍历完成忽略过滤（`ToolUtils.isIgnoredPath`）与目录分类（每个条目仅一次 `Files.isDirectory` stat 调用），排序使用已捕获的目录标志（目录优先 + 文件名字母序大小写不敏感），避免排序比较器反复触发文件系统调用
 
-**loadChildren 实现细节：**
-- 使用 `Files.list()` 流式读取目录内容
-- 排序规则：目录优先（`!Files.isDirectory(p)` 作为首要排序键）+ 文件名字母序（大小写不敏感）
-- 通过 `ToolUtils.isIgnoredPath(child)` 过滤忽略路径（如 `target/`、`.git/` 等）
-- 为每个子节点创建 `LazyTreeItem`，传入 `this::loadChildren` 作为回调，实现递归懒加载
+**相关类：FileEntry**（`cn.bitloom.node.project.FileEntry`）
+
+record（`path` + `directory`）。目录性在扫描线程确定一次并随节点缓存，渲染线程（单元格着色、`isLeaf`、图标选择）全部读取该标志，FX 线程零文件系统 IO。
 
 **相关类：LazyTreeItem**（`cn.bitloom.node.project.LazyTreeItem`）
 
-继承 `javafx.scene.control.TreeItem<Path>`，解决 JavaFX 默认 `TreeItem` 在懒加载场景下深层目录无法展开的问题。
+继承 `javafx.scene.control.TreeItem<FileEntry>`，解决 JavaFX 默认 `TreeItem` 在懒加载场景下深层目录无法展开的问题。
 
 **核心机制：**
-- 重写 `isLeaf()`：返回 `!Files.isDirectory(getValue())`，基于文件系统实际类型判断，与 children 加载状态解耦
-- 构造时接收 `Consumer<TreeItem<Path>>` 回调（通常为 `FileTreeService::loadChildren`）
-- 监听 `expandedProperty`：首次展开时（`isNowExpanded && !loaded`）调用回调加载子节点，`loaded` 标志位避免重复加载
+- 状态机 `NOT_LOADED → LOADING → LOADED` 显式管理加载生命周期；`rescanPending` 标志合并加载期间到达的刷新请求，加载完成后立即补扫
+- 所有子节点变更（首次加载与增量重扫）统一走 `applyChildren`：以扫描快照为准 diff 合并（同文件名复用原节点实例，保留展开/选中状态）后 `setAll` 整体替换——幂等操作，无论调用前 children 处于何种状态，执行后都与文件系统快照严格一致，杜绝重复节点；快照与当前 children 同序同实例（无变化）时跳过 `setAll`，避免内容相同的列表变更事件触发 TreeView 重建可见行造成闪烁
+- `rescan()`：NOT_LOADED 跳过（展开时自然扫描最新）；LOADING 记 pending；LOADED 后台重扫
+- 展开监听：首次展开触发加载；折叠后再展开（LOADED）自动补扫最新快照
+- 共享单线程扫描执行器（`autiva-tree-scan` 守护线程）：所有节点的目录扫描串行执行，避免"每节点一线程"的创建风暴与并发随机读
+- 重写 `isLeaf()`：返回 `!getValue().directory()`，基于扫描时捕获的标志判断，零 IO 且与 children 加载状态解耦
 
 **问题根因（使用原生 TreeItem 的死锁）：**
 原生 `TreeItem.isLeaf()` 默认基于 `getChildren().isEmpty()` 判断。在懒加载场景下，非根目录的 children 尚未加载（为空），因此被误判为叶子节点 → TreeView 不渲染展开箭头 → 用户无法点击展开 → `expandedProperty` 监听器无法触发 → children 永远为空。`LazyTreeItem` 通过将 `isLeaf()` 与 children 状态解耦打破此死锁。
@@ -95,7 +96,7 @@ Git 服务（Spring `@Component`），仅查询 Git 信息，不支持修改操�
 ### ProjectStatusStore（@Component）
 当前展示项目的 Git 状态共享存储（bean）。
 - 持有 `projectRoot`、`statusMap`、`changedDirs`。
-- `update(root, map)`: 注入新状态并翻转 `refreshSignal`（BooleanProperty，风格同 `Store.refreshHistory`）触发 UI 刷新。
+- `update(root, map)`: 注入新状态并翻转 `refreshSignal`（BooleanProperty，风格同 `Store.refreshHistory`）触发 UI 刷新；根与状态映射均未变化时跳过翻转（避免进入目录树等场景的无意义刷新）。
 - `GitFileStatus statusOf(Path)`、`boolean isDirChanged(Path)`: 供单元格/视图查询。
 
 ### ProjectFileWatcherService（@Component）
@@ -115,6 +116,7 @@ Git 服务（Spring `@Component`），仅查询 Git 信息，不支持修改操�
 2. GitService 使用 ProcessBuilder 执行 git 命令，不依赖 JGit（GitStatusService 用 JGit 走内存计算，二者职责不重叠）
 3. 项目路径验证：registerLocal 时检查路径是否为有效目录
 4. 线程安全：ProjectRegistry 使用 CopyOnWriteArrayList
-5. FileTreeService 的 `loadChildren` 为私有方法，仅通过 `LazyTreeItem` 的展开回调间接调用
+5. FileTreeService 的 `scanChildren` 为私有方法，仅通过 `LazyTreeItem` 的扫描函数注入后台执行；目录树刷新（`SideBarController.refreshProjectTree`）仅重扫展开的目录节点，折叠子树在再次展开时自动补扫
 6. LazyTreeItem 位于 `cn.bitloom.node.project` 包（不在本包），但因与 FileTreeService 紧密耦合，在此一并说明
-7. 目录树着色通过在 `SideBarController.showProjectTree` 设置 `FileTreeCell.setStatusStore(projectStatusStore)` 启用；文件视图（CoderEditorPanelController）订阅 `projectStatusStore.refreshSignal` 同步刷新
+7. 目录树着色通过在 `SideBarController.showProjectTree` 设置 `FileTreeCell.setStatusStore(projectStatusStore)` 启用；Git 状态计算（全仓 `git status`）在 `statusExecutor` 后台线程执行，不在 FX 线程；文件视图（CoderEditorPanelController）订阅 `projectStatusStore.refreshSignal`，文件重读与行级 diff 同样在后台线程执行、FX 线程仅做 UI 应用
+8. 目录树行 hover 灰底（`side-bar.css` 的 `file-tree__cell--hover` 样式类）由 `FileTreeCell` 按行索引驱动，不使用 CSS `:hover` 伪类——展开/折叠时 VirtualFlow 复用/重排 cell，伪类事件跨帧到达会瞬时丢失再恢复（表现为点击折叠箭头时灰影闪烁）；hover 行索引记录在 TreeView properties 的共享 `IntegerProperty` 上，接管该行的 cell 立即命中索引恢复高亮。目录树行同样不使用 `:pressed` 反馈（同因）。
