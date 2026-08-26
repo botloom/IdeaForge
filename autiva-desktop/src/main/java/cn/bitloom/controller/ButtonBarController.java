@@ -4,7 +4,9 @@ import cn.bitloom.holder.ButtonBarHolder;
 import cn.bitloom.node.svg.SvgImageView;
 import javafx.fxml.FXML;
 import javafx.fxml.Initializable;
+import javafx.scene.Node;
 import javafx.scene.control.Button;
+import javafx.scene.control.MenuButton;
 import javafx.scene.layout.HBox;
 import lombok.Setter;
 import lombok.extern.slf4j.Slf4j;
@@ -64,36 +66,63 @@ public class ButtonBarController implements Initializable {
 
         if (holder != null) {
             for (ButtonBarHolder.ButtonConfig buttonConfig : holder.getButtonConfigs()) {
-                Button button = new Button();
-                button.setId(buttonConfig.id());
-                button.getStyleClass().add(buttonConfig.styleClass());
-                button.setOnAction(buttonConfig.actionHandler());
-                this.buttonMap.put(buttonConfig.id(), button);
-
-                // 如果有图标路径，只显示图标；否则只显示文字
-                if (buttonConfig.svgPath() != null && !buttonConfig.svgPath().isEmpty()) {
-                    SvgImageView icon = new SvgImageView();
-                    icon.setFitWidth(18);
-                    icon.setFitHeight(18);
-                    icon.setSvgPath(buttonConfig.svgPath());
-                    button.setGraphic(icon);
-                    button.setContentDisplay(javafx.scene.control.ContentDisplay.GRAPHIC_ONLY);
-                } else if (buttonConfig.text() != null && !buttonConfig.text().isEmpty()) {
-                    button.setText(buttonConfig.text());
-                    button.setContentDisplay(javafx.scene.control.ContentDisplay.TEXT_ONLY);
-                }
-
+                Node node = buildButton(buttonConfig);
                 // 根据对齐方式放到不同容器
                 if (buttonConfig.alignment() == ButtonBarHolder.Alignment.RIGHT) {
-                    this.rightButtonContainer.getChildren().add(button);
+                    this.rightButtonContainer.getChildren().add(node);
                 } else {
-                    this.dynamicButtonContainer.getChildren().add(button);
+                    this.dynamicButtonContainer.getChildren().add(node);
                 }
             }
         }
 
         // 重建完成后按当前状态应用视图按钮可见性
         applyViewButtonVisibility();
+    }
+
+    /**
+     * 根据配置构建按钮：菜单初始化器（menuSetup）非空时渲染为 MenuButton，否则为普通 Button。
+     */
+    private Node buildButton(ButtonBarHolder.ButtonConfig buttonConfig) {
+        if (buttonConfig.menuSetup() != null) {
+            MenuButton menuButton = new MenuButton();
+            menuButton.setId(buttonConfig.id());
+            menuButton.getStyleClass().add(buttonConfig.styleClass());
+            // 图形（与左侧侧边栏按钮一致：18px）
+            if (buttonConfig.svgPath() != null && !buttonConfig.svgPath().isEmpty()) {
+                SvgImageView icon = new SvgImageView();
+                icon.setFitWidth(18);
+                icon.setFitHeight(18);
+                icon.setSvgPath(buttonConfig.svgPath());
+                menuButton.setGraphic(icon);
+            }
+            if (buttonConfig.text() != null && !buttonConfig.text().isEmpty()) {
+                menuButton.setText(buttonConfig.text());
+            }
+            menuButton.setFocusTraversable(false);
+            buttonConfig.menuSetup().accept(menuButton);
+            return menuButton;
+        }
+
+        Button button = new Button();
+        button.setId(buttonConfig.id());
+        button.getStyleClass().add(buttonConfig.styleClass());
+        button.setOnAction(buttonConfig.actionHandler());
+        this.buttonMap.put(buttonConfig.id(), button);
+
+        // 如果有图标路径，只显示图标；否则只显示文字
+        if (buttonConfig.svgPath() != null && !buttonConfig.svgPath().isEmpty()) {
+            SvgImageView icon = new SvgImageView();
+            icon.setFitWidth(18);
+            icon.setFitHeight(18);
+            icon.setSvgPath(buttonConfig.svgPath());
+            button.setGraphic(icon);
+            button.setContentDisplay(javafx.scene.control.ContentDisplay.GRAPHIC_ONLY);
+        } else if (buttonConfig.text() != null && !buttonConfig.text().isEmpty()) {
+            button.setText(buttonConfig.text());
+            button.setContentDisplay(javafx.scene.control.ContentDisplay.TEXT_ONLY);
+        }
+        return button;
     }
 
     /**

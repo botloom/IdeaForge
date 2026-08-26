@@ -12,6 +12,7 @@ import cn.bitloom.vm.CodeHomePageViewModel;
 import cn.bitloom.window.WindowManager;
 import javafx.application.Platform;
 import javafx.fxml.FXML;
+import javafx.geometry.Bounds;
 import javafx.scene.Node;
 import javafx.scene.control.*;
 import javafx.scene.layout.VBox;
@@ -61,7 +62,7 @@ public class CodeHomePageController extends AbstractHomePageController {
      * 统一计算输入框提示文案：计划模式 > 默认。Goal/Plan 改为斜杠命令后无独立待输入状态。
      */
     private void updateSendFieldPrompt() {
-        if (Boolean.TRUE.equals(this.viewModel.planModeProperty().get())) {
+        if (this.viewModel.planModeProperty().get()) {
             sendField.setPromptText("描述你的任务，呆芽将只读调研并制定计划...");
         } else {
             sendField.setPromptText("给呆芽发消息...");
@@ -325,9 +326,123 @@ public class CodeHomePageController extends AbstractHomePageController {
 
     // ===== 按钮配置 =====
 
+    /**
+     * 右侧“在外部打开”按钮 id。
+     */
+    private static final String EXTERNAL_OPEN_BUTTON_ID = "externalOpenButton";
+
+    /**
+     * 右侧外部打开菜单的 CSS 样式类（定义于 button-bar.css）。
+     */
+    private static final String EXTERNAL_MENU_STYLE_CLASS = "external-open-menu";
+
     @Override
     public List<ButtonBarHolder.ButtonConfig> getButtonConfigs() {
-        return createCommonButtons();
+        List<ButtonBarHolder.ButtonConfig> configs = createCommonButtons();
+
+        // 右上角按钮：纯图标，样式与左侧侧边栏按钮复用同一 CSS 类；
+        // 点击弹出下拉菜单，动态检测本机已安装的外部工具并在当前项目目录打开。
+        configs.add(new ButtonBarHolder.ButtonConfig(
+                EXTERNAL_OPEN_BUTTON_ID,
+                "",
+                "button-bar__icon-btn",
+                "/cn/bitloom/images/external-link.svg",
+                ButtonBarHolder.Alignment.RIGHT,
+                this::openExternalMenu,
+                null
+        ));
+        return configs;
+    }
+
+    /**
+     * 点击外部打开按钮：在按钮下方弹出工具选择菜单。已有检测结果时直接展示，
+     * 否则显示“检测中...”并在后台补一次扫描。
+     */
+    private void openExternalMenu(javafx.event.ActionEvent event) {
+        Node source = (Node) event.getSource();
+        javafx.scene.control.ContextMenu menu = new javafx.scene.control.ContextMenu();
+        menu.getStyleClass().add(EXTERNAL_MENU_STYLE_CLASS);
+
+        // 未选择项目时给出提示
+        if (this.viewModel.getCurrentProject() == null) {
+            javafx.scene.control.MenuItem tip = new javafx.scene.control.MenuItem("请先选择项目");
+            tip.setDisable(true);
+            menu.getItems().add(tip);
+            showMenuAt(source, menu);
+            return;
+        }
+
+        // 已有缓存：直接展示，不再重复扫描
+        if (lastDetectedTools != null) {
+            fillExternalMenu(menu, lastDetectedTools);
+            showMenuAt(source, menu);
+            return;
+        }
+
+        // 首次：先显示“检测中...”，再后台扫描填充
+        javafx.scene.control.MenuItem loading = new javafx.scene.control.MenuItem("检测中...");
+        loading.setDisable(true);
+        menu.getItems().add(loading);
+        showMenuAt(source, menu);
+
+        javafx.concurrent.Task<List<cn.bitloom.util.ExternalToolDetector.DetectedTool>> task =
+                new javafx.concurrent.Task<>() {
+                    @Override
+                    protected List<cn.bitloom.util.ExternalToolDetector.DetectedTool> call() {
+                        return cn.bitloom.util.ExternalToolDetector.detect();
+                    }
+                };
+        task.setOnSucceeded(ev -> {
+            lastDetectedTools = task.getValue();
+            if (menu.isShowing()) {
+                menu.getItems().clear();
+                fillExternalMenu(menu, lastDetectedTools);
+            }
+        });
+        task.setOnFailed(ev -> {
+            if (menu.isShowing()) {
+                menu.getItems().clear();
+                javafx.scene.control.MenuItem empty = new javafx.scene.control.MenuItem("检测失败");
+                empty.setDisable(true);
+                menu.getItems().add(empty);
+            }
+        });
+        new Thread(task).start();
+    }
+
+    /** 在按钮下方定位并显示菜单 */
+    private void showMenuAt(Node source, javafx.scene.control.ContextMenu menu) {
+        javafx.geometry.Bounds bounds = source.localToScreen(source.getBoundsInLocal());
+        if (bounds != null) {
+            menu.show(source, bounds.getMinX(), bounds.getMaxY());
+        } else {
+            menu.show(source, source.getLayoutX(),
+                    source.getLayoutY() + source.getBoundsInLocal().getHeight());
+        }
+    }
+
+    /** 最近一次检测结果缓存（null 表示尚未检测过） */
+    private List<cn.bitloom.util.ExternalToolDetector.DetectedTool> lastDetectedTools = null;
+
+    private void fillExternalMenu(javafx.scene.control.ContextMenu menu,
+                                  List<cn.bitloom.util.ExternalToolDetector.DetectedTool> tools) {
+        menu.getItems().clear();
+        if (tools.isEmpty()) {
+            javafx.scene.control.MenuItem empty = new javafx.scene.control.MenuItem("未检测到可用工具");
+            empty.setDisable(true);
+            menu.getItems().add(empty);
+            return;
+        }
+        String projectPath = this.viewModel.getCurrentProject() == null
+                ? null : this.viewModel.getCurrentProject().path();
+        for (cn.bitloom.util.ExternalToolDetector.DetectedTool tool : tools) {
+            javafx.scene.control.MenuItem item = new javafx.scene.control.MenuItem(tool.displayName());
+            item.setOnAction(ev -> {
+                menu.hide();
+                cn.bitloom.util.ExternalToolDetector.launch(projectPath, tool);
+            });
+            menu.getItems().add(item);
+        }
     }
 
     @Override
