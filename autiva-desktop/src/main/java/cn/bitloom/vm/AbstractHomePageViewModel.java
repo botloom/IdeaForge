@@ -5,8 +5,8 @@ import cn.bitloom.agentic.agent.AgentDefinition;
 import cn.bitloom.agentic.agent.AgentDefinitionManager;
 import cn.bitloom.agentic.agent.RuntimeContext;
 import cn.bitloom.agentic.agent.advisor.AgentMemoryAdvisor;
-import cn.bitloom.agentic.agent.advisor.EnvironmentAdvisor;
-import cn.bitloom.agentic.agent.advisor.MemoryRecallAdvisor;
+import cn.bitloom.agentic.agent.advisor.EnvironmentContextAdvisor;
+import cn.bitloom.agentic.agent.advisor.AgentMemoryRecallAdvisor;
 import cn.bitloom.agentic.agent.advisor.SessionMemoryAdvisor;
 import cn.bitloom.agentic.agent.advisor.SkillContextAdvisor;
 import cn.bitloom.agentic.agent.advisor.SubagentContextAdvisor;
@@ -412,14 +412,6 @@ public abstract class AbstractHomePageViewModel {
         if (AgentMode.fromAgentId(agentId) != AgentMode.CODE) {
             return systemPrompt + ShellSession.envBlock();
         }
-        try {
-            Path globalRules = AppConstants.Rules.codeGlobalRulesFile();
-            if (Files.exists(globalRules)) {
-                systemPrompt += "\n\n# 全局规则\n" + Files.readString(globalRules);
-            }
-        } catch (Exception e) {
-            log.warn("读取全局规则失败: {}", AppConstants.Rules.codeGlobalRulesFile(), e);
-        }
         ProjectInfo project = getCurrentProject();
         if (project != null) {
             try {
@@ -485,7 +477,7 @@ public abstract class AbstractHomePageViewModel {
                 .build();
         advisors.add(agentMemoryAdvisor);
 
-        advisors.add(MemoryRecallAdvisor.builder()
+        advisors.add(AgentMemoryRecallAdvisor.builder()
                 .sessionManager(sessionManager)
                 .memoryStore(memoryStore)
                 .chatClient(ChatClient.builder(chatModel).build())
@@ -497,7 +489,7 @@ public abstract class AbstractHomePageViewModel {
                 .definitionManager(definitionManager)
                 .definition(definition)
                 .build());
-        advisors.add(EnvironmentAdvisor.builder().build());
+        advisors.add(EnvironmentContextAdvisor.builder().build());
 
         List<ToolCallback> allTools = new ArrayList<>(toolkit.buildToolCallbacks(definition));
         allTools.add(ConversationSearchTool.builder(sessionManager).build().toToolCallback());

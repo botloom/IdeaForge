@@ -53,11 +53,6 @@ public class AppBootstrap {
             log.error("初始化子智能体失败", e);
         }
         try {
-            initCodeGlobalRules();
-        } catch (Exception e) {
-            log.error("初始化 code 全局规则失败", e);
-        }
-        try {
             initWorkMemory();
         } catch (Exception e) {
             log.error("初始化 work 记忆目录失败", e);
@@ -146,20 +141,6 @@ public class AppBootstrap {
             Files.copy(resource.getInputStream(), targetDir.resolve("agent.md"), StandardCopyOption.REPLACE_EXISTING);
             log.info("复制子智能体: {}", subagentName);
         }
-    }
-
-    /**
-     * 初始化 code 模式全局规则文件 workspace/code/AUTIVA.md
-     */
-    private static void initCodeGlobalRules() throws IOException {
-        Path rulesFile = AppConstants.Rules.codeGlobalRulesFile();
-        if (Files.exists(rulesFile)) {
-            return;
-        }
-        Files.createDirectories(rulesFile.getParent());
-        PathMatchingResourcePatternResolver resolver = new PathMatchingResourcePatternResolver();
-        Resource template = resolver.getResource("classpath:bootstrap/code-autiva-rules.md");
-        Files.copy(template.getInputStream(), rulesFile, StandardCopyOption.REPLACE_EXISTING);
     }
 
     /**

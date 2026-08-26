@@ -1,0 +1,53 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "Autiva 架构总览",
+    "output": "autiva-architecture.html",
+    "quality_profile": "showcase"
+  },
+  "layout": {
+    "mode": "grid",
+    "cols": 5,
+    "cellW": 190,
+    "cellH": 138,
+    "gapX": 16,
+    "gapY": 36
+  },
+  "components": [
+    { "id": "ui", "type": "frontend", "label": "JavaFX 界面层", "sublabel": "Controller / Router", "row": 0, "col": 0 },
+    { "id": "store", "type": "frontend", "label": "全局 Store", "sublabel": "跨界面共享状态", "row": 0, "col": 1 },
+    { "id": "model", "type": "cloud", "label": "模型工厂", "sublabel": "Spring AI 适配", "row": 0, "col": 2 },
+    { "id": "deepseek", "type": "external", "label": "DeepSeek LLM", "sublabel": "OpenAI 兼容 API", "row": 0, "col": 3 },
+
+    { "id": "bridge-ui", "type": "backend", "label": "Tool↔UI 桥接", "sublabel": "卡片事件渲染", "tag": "bridge", "row": 1, "col": 0 },
+    { "id": "agent-core", "type": "backend", "label": "Agent 核心", "sublabel": "统一 Agent·Advisor·Event", "row": 1, "col": 1 },
+
+    { "id": "wechat", "type": "external", "label": "微信接入", "sublabel": "iLink 协议·消息", "tag": "bridge", "row": 2, "col": 0 },
+    { "id": "tool-system", "type": "backend", "label": "工具系统", "sublabel": "File/Command/Web/Task", "row": 2, "col": 1 },
+    { "id": "session", "type": "database", "label": "会话管理", "sublabel": "events.jsonl 持久化", "row": 2, "col": 2 },
+    { "id": "memory", "type": "database", "label": "记忆系统", "sublabel": "文件记忆·自动压缩", "row": 2, "col": 3 },
+    { "id": "skill", "type": "database", "label": "技能系统", "sublabel": "ZIP 动态加载", "row": 2, "col": 4 }
+  ],
+  "boundaries": [
+    { "kind": "region", "label": "Autiva 桌面应用（JavaFX 25 + Spring Boot 4.1）", "wraps": ["ui", "store", "bridge-ui", "agent-core", "session", "memory", "tool-system", "skill"] }
+  ],
+  "connections": [
+    { "id": "ui-to-agent", "from": "ui", "to": "agent-core", "label": "发起请求", "variant": "emphasis" },
+    { "id": "ui-store", "from": "ui", "to": "store", "label": "读写状态" },
+    { "id": "agent-to-model", "from": "agent-core", "to": "model", "label": "LLM 请求", "variant": "emphasis" },
+    { "id": "model-to-deepseek", "from": "model", "to": "deepseek", "label": "流式 / 阻塞" },
+    { "id": "agent-to-tool", "from": "agent-core", "to": "tool-system", "label": "调用工具", "labelDy": -56 },
+    { "id": "agent-to-session", "from": "agent-core", "to": "session", "label": "会话管理" },
+    { "id": "agent-to-memory", "from": "agent-core", "to": "memory", "label": "记忆读写" },
+    { "id": "agent-to-skill", "from": "agent-core", "to": "skill", "label": "技能注入" },
+    { "id": "tool-to-bridge", "from": "tool-system", "to": "bridge-ui", "label": "卡片事件" },
+    { "id": "bridge-to-ui", "from": "bridge-ui", "to": "ui", "label": "UI 更新", "variant": "dashed" },
+    { "id": "tool-to-wechat", "from": "tool-system", "to": "wechat", "label": "消息收发", "variant": "dashed", "labelDy": 22 }
+  ],
+  "cards": [
+    { "dot": "cyan", "title": "交互层", "items": ["JavaFX 控制器/路由/自定义 Node 渲染", "全局 Store 共享状态", "Tool↔UI 桥接输出卡片事件", "微信 iLink 协议接入"] },
+    { "dot": "emerald", "title": "Agent 核心", "items": ["统一 Agent：MAIN 与 SUBAGENT 双类型", "建议器体系 (Advisor)：记忆/会话/技能/环境", "事件总线与权限 Hook 链", "文件/命令/子智能体等工具系统"] },
+    { "dot": "violet", "title": "数据与外部", "items": ["会话 events.jsonl 追加式持久化并自动压缩", "按模式/项目隔离的文件记忆", "技能 ZIP 动态加载", "DeepSeek 多模型经 Spring AI 适配"] }
+  ]
+}

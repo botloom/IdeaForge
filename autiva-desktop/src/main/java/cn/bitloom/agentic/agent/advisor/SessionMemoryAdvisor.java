@@ -166,8 +166,7 @@ public final class SessionMemoryAdvisor implements BaseAdvisor, MemoryAdvisor {
 		if (session == null) {
 			String userId = getUserId(request.context());
 			session = this.sessionService.create(CreateSessionRequest.builder().id(sessionId).userId(userId).build());
-		}
-		else {
+		} else {
 			// 当调用者通过 USER_ID_CONTEXT_KEY 显式标识用户时强制所有权。
 			// 当没有每个请求的用户 ID 时跳过，以便仅依赖 defaultUserId 的调用者不会中断
 			Object userIdValue = request.context().get(USER_ID_CONTEXT_KEY);

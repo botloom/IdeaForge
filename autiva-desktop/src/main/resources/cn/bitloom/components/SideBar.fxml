@@ -52,7 +52,7 @@
 
         <ScrollPane fx:id="historyScroll" styleClass="sidebar__history-scroll"
                     fitToWidth="true" VBox.vgrow="ALWAYS"
-                    hbarPolicy="NEVER">
+                    hbarPolicy="NEVER" vbarPolicy="NEVER">
             <VBox fx:id="historyList" styleClass="sidebar__history-list"/>
         </ScrollPane>
 

@@ -25,10 +25,9 @@ import java.util.List;
  */
 @Slf4j
 @Builder
-public class EnvironmentAdvisor implements StreamAdvisor, CallAdvisor {
+public class EnvironmentContextAdvisor implements StreamAdvisor, CallAdvisor {
 
-    private static final DateTimeFormatter TIME_FORMATTER =
-            DateTimeFormatter.ofPattern("yyyy-MM-dd");
+    private static final DateTimeFormatter TIME_FORMATTER = DateTimeFormatter.ofPattern("yyyy-MM-dd");
 
     @Override
     public @NonNull String getName() {
@@ -41,15 +40,13 @@ public class EnvironmentAdvisor implements StreamAdvisor, CallAdvisor {
     }
 
     @Override
-    public @NonNull Flux<ChatClientResponse> adviseStream(@NonNull ChatClientRequest request,
-                                                           @NonNull StreamAdvisorChain chain) {
+    public @NonNull Flux<ChatClientResponse> adviseStream(@NonNull ChatClientRequest request, @NonNull StreamAdvisorChain chain) {
         ChatClientRequest modifiedRequest = injectEnvironment(request);
         return chain.nextStream(modifiedRequest);
     }
 
     @Override
-    public @NonNull ChatClientResponse adviseCall(@NonNull ChatClientRequest request,
-                                                   @NonNull CallAdvisorChain chain) {
+    public @NonNull ChatClientResponse adviseCall(@NonNull ChatClientRequest request, @NonNull CallAdvisorChain chain) {
         ChatClientRequest modifiedRequest = injectEnvironment(request);
         return chain.nextCall(modifiedRequest);
     }
@@ -93,23 +90,28 @@ public class EnvironmentAdvisor implements StreamAdvisor, CallAdvisor {
     private String buildEnvironmentText() {
         StringBuilder sb = new StringBuilder();
         sb.append("<environment>");
+        sb.append(System.lineSeparator());
+
+        sb.append("- 语言环境：中文");
+        sb.append(System.lineSeparator());
 
         String osName = System.getProperty("os.name", "unknown");
         String osVersion = System.getProperty("os.version", "");
         String osArch = System.getProperty("os.arch", "unknown");
-
-        sb.append("\n- OS: ").append(osName);
+        sb.append("- OS: ").append(osName);
         if (!osVersion.isEmpty()) {
             sb.append(" ").append(osVersion);
         }
         sb.append(" (").append(osArch).append(")");
 
+        sb.append(System.lineSeparator());
         ZoneId zoneId = ZoneId.systemDefault();
         ZonedDateTime now = ZonedDateTime.now(zoneId);
-        sb.append("\n- Time: ").append(now.format(TIME_FORMATTER));
+        sb.append("- Time: ").append(now.format(TIME_FORMATTER));
         sb.append(" (UTC").append(now.getOffset().getId()).append(")");
 
-        sb.append("\n</environment>");
+        sb.append(System.lineSeparator());
+        sb.append("</environment>");
         return sb.toString();
     }
 }

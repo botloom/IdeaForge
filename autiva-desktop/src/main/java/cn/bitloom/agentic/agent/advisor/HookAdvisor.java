@@ -134,9 +134,8 @@ public class HookAdvisor implements CallAdvisor, StreamAdvisor {
      * 从响应中提取停止原因（如 "STOP"、"TOOL_CALLS"），可能为 null。
      */
     private String extractFinishReason(ChatClientResponse response) {
-        if (response != null && response.chatResponse() != null
-                && response.chatResponse().getResult() != null
-                && response.chatResponse().getResult().getMetadata() != null) {
+        if (response != null && response.chatResponse() != null && response.chatResponse().getResult() != null) {
+            response.chatResponse().getResult();
             return response.chatResponse().getResult().getMetadata().getFinishReason();
         }
         return null;

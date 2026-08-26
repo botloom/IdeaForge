@@ -1,8 +1,8 @@
 package cn.bitloom.agentic.agent;
 
 import cn.bitloom.agentic.agent.advisor.AgentMemoryAdvisor;
-import cn.bitloom.agentic.agent.advisor.EnvironmentAdvisor;
-import cn.bitloom.agentic.agent.advisor.MemoryRecallAdvisor;
+import cn.bitloom.agentic.agent.advisor.EnvironmentContextAdvisor;
+import cn.bitloom.agentic.agent.advisor.AgentMemoryRecallAdvisor;
 import cn.bitloom.agentic.agent.advisor.SessionMemoryAdvisor;
 import cn.bitloom.agentic.agent.advisor.SkillContextAdvisor;
 import cn.bitloom.agentic.skill.SkillManager;
@@ -129,13 +129,13 @@ public class SubAgentFactory {
                 .memoryConsolidationTrigger(
                         MemoryConsolidator.triggerWhen(memoryStore, MemoryConsolidator.DEFAULT_THRESHOLD))
                 .build());
-        advisors.add(MemoryRecallAdvisor.builder()
+        advisors.add(AgentMemoryRecallAdvisor.builder()
                 .sessionManager(sessionManager)
                 .memoryStore(memoryStore)
                 .chatClient(ChatClient.builder(chatModel).build())
                 .build());
         advisors.add(SkillContextAdvisor.builder().skillManager(skillManager).build());
-        advisors.add(EnvironmentAdvisor.builder().build());
+        advisors.add(EnvironmentContextAdvisor.builder().build());
 
         List<ToolCallback> allTools = new ArrayList<>(toolkitProvider.getObject().buildToolCallbacks(definition));
         allTools.add(ConversationSearchTool.builder(sessionManager).build().toToolCallback());

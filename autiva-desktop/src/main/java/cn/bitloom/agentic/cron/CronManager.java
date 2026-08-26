@@ -5,7 +5,7 @@ import cn.bitloom.agentic.agent.AgentDefinition;
 import cn.bitloom.agentic.agent.AgentDefinitionManager;
 import cn.bitloom.agentic.agent.RuntimeContext;
 import cn.bitloom.agentic.agent.advisor.AgentMemoryAdvisor;
-import cn.bitloom.agentic.agent.advisor.MemoryRecallAdvisor;
+import cn.bitloom.agentic.agent.advisor.AgentMemoryRecallAdvisor;
 import cn.bitloom.agentic.agent.advisor.SessionMemoryAdvisor;
 import cn.bitloom.agentic.hook.IAgentHook;
 import cn.bitloom.agentic.hook.PermissionHook;
@@ -418,7 +418,7 @@ public class CronManager {
                 .build();
         advisors.add(agentMemoryAdvisor);
 
-        advisors.add(MemoryRecallAdvisor.builder()
+        advisors.add(AgentMemoryRecallAdvisor.builder()
                 .sessionManager(fileSystemSessionManager)
                 .memoryStore(memoryStore)
                 .chatClient(ChatClient.builder(chatModel).build())

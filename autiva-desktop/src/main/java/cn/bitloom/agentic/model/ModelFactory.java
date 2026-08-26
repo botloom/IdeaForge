@@ -8,6 +8,7 @@ import org.springframework.ai.openai.OpenAiChatModel;
 import org.springframework.ai.openai.OpenAiChatOptions;
 import org.springframework.stereotype.Component;
 
+import java.time.Duration;
 import java.util.EnumMap;
 import java.util.Map;
 
@@ -34,6 +35,8 @@ public class ModelFactory {
                                 .baseUrl(configManager.getDeepseekBaseUrl())
                                 .apiKey(configManager.getDeepseekApiKey())
                                 .model(configManager.getDeepseekChatModel())
+                                .timeout(Duration.ZERO)
+                                .maxRetries(3)
                                 .extraBody(Map.of("thinking", Map.of("type", "disabled")))
                                 .build()
                 )

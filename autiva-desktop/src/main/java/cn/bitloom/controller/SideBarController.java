@@ -503,6 +503,8 @@ public class SideBarController implements Initializable, PageHolder {
         HBox treeHeader = createProjectHeader(project, true);
 
         // 目录树容器：顶部头部 + 下方目录树
+        // fitToHeight(true) 让内容撑满视口高度，树再以 vgrow 占满余下空间；
+        // 外层 vbarPolicy=NEVER 与会话列表一致，不显示竖向滚动条，树自身滚动条由 CSS 隐藏。
         VBox treeContainer = new VBox(treeHeader, treeView);
         treeContainer.getStyleClass().add("sidebar__tree-container");
         VBox.setVgrow(treeView, Priority.ALWAYS);
