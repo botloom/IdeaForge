@@ -35,6 +35,13 @@ public class MemoryStrReplaceTool extends AbstractTool<MemoryStrReplaceTool.Inpu
 	@Override
 	public @NonNull ToolResult execute(@NonNull Input input, @Nullable ToolContext context) {
 		try {
+			if (input.path() == null || input.path().isBlank()) {
+				return ToolResult.error("错误：path 参数不能为空。");
+			}
+			if (input.oldStr() == null) {
+				return ToolResult.error("错误：old_str 参数不能为 null，需要提供要替换的现有文本。");
+			}
+
 			if (!store.exists(input.path())) {
 				return ToolResult.error("错误：文件不存在：" + input.path());
 			}

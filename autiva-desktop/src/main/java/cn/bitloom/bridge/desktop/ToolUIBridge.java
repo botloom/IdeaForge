@@ -34,6 +34,10 @@ public class ToolUIBridge {
     @Setter
     private BiConsumer<String, Node> onNodeAdded;
 
+    /** 系统通知（toast）回调：把文本以悬浮 toast 形式展示在当前活动首页上方 */
+    @Setter
+    private Consumer<String> onShowToast;
+
     /** 主智能体批准回调：把 ApprovalCard 放到输入框上方的 approvalBar（不持久化到聊天历史） */
     @Setter
     private Consumer<ApprovalCard> onShowApproval;
@@ -67,13 +71,24 @@ public class ToolUIBridge {
     }
 
     /**
-     * 在主聊天流展示系统通知卡片（后台任务完成/失败等，区别于用户消息样式）。
+     * 以悬浮 toast 展示一条系统通知（后台任务完成/失败、分支切换等），不写入聊天消息流。
      * 通知事件的持久化由 TaskTool 写入 session，此处仅负责实时 UI 反馈。
      */
     public void showNotification(String text, String sessionId) {
         Platform.runLater(() -> {
-            if (this.onNodeAdded != null) {
-                this.onNodeAdded.accept(sessionId, new cn.bitloom.node.message.NotificationCard(text));
+            if (this.onShowToast != null) {
+                this.onShowToast.accept(text);
+            }
+        });
+    }
+
+    /**
+     * 以悬浮 toast 展示一条系统通知（供 ViewModel/Controller 等直接调用，无需 sessionId）。
+     */
+    public void showToast(String text) {
+        Platform.runLater(() -> {
+            if (this.onShowToast != null) {
+                this.onShowToast.accept(text);
             }
         });
     }

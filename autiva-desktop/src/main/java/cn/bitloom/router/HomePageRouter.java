@@ -12,6 +12,7 @@ import cn.bitloom.store.Store;
 import javafx.application.Platform;
 import javafx.fxml.FXMLLoader;
 import javafx.scene.layout.Priority;
+import javafx.scene.layout.Region;
 import javafx.scene.layout.VBox;
 import lombok.Getter;
 import lombok.extern.slf4j.Slf4j;
@@ -43,10 +44,10 @@ public class HomePageRouter {
     @Getter
     private EditorPanelController activeEditorController;
 
-    private VBox coderHomeRoot;
-    private VBox workHomeRoot;
-    private VBox coderEditorRoot;
-    private VBox workEditorRoot;
+    private Region coderHomeRoot;
+    private Region workHomeRoot;
+    private Region coderEditorRoot;
+    private Region workEditorRoot;
 
     private CodeHomePageController coderHomeController;
     private WorkHomePageController workHomeController;
@@ -109,15 +110,15 @@ public class HomePageRouter {
      * 加载 FXML，使用 Spring ApplicationContext 作为 controllerFactory。
      * FXMLLoader 会将 controller 实例存入 root 的 UserData。
      */
-    private VBox loadFxml(String path) throws Exception {
+    private Region loadFxml(String path) throws Exception {
         FXMLLoader loader = new FXMLLoader(new ClassPathResource(path).getURL());
         loader.setControllerFactory(applicationContext::getBean);
-        VBox root = loader.load();
+        Region root = loader.load();
         root.setUserData(loader.getController());
         return root;
     }
 
-    private Object getUserDataController(VBox root) {
+    private Object getUserDataController(Region root) {
         return root.getUserData();
     }
 
@@ -160,6 +161,7 @@ public class HomePageRouter {
 
         // 重绑定 toolUIBridge 回调到活跃 controller
         toolUIBridge.setOnNodeAdded(activeHomeController::addChatNode);
+        toolUIBridge.setOnShowToast(activeHomeController::showToast);
         activeHomeController.show();
 
         // 模式切换后重置新 viewModel 与 UI（确保新会话初始态干净）

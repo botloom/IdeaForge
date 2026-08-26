@@ -107,18 +107,22 @@ public class ConversationSearchTool extends AbstractTool<ConversationSearchTool.
 
 	private String resolveSessionId(ToolContext toolContext) {
 		if (toolContext == null || toolContext.getContext() == null) {
-			logger.warn("[conversation_search] ToolContext 为 null — 回退到 session ID 'default'。");
-			return "default";
+			throw new IllegalArgumentException("无法搜索会话：ToolContext 缺失，无法解析当前会话 ID。"
+					+ "请通过 advisors 参数绑定 " + SESSION_ID_CONTEXT_KEY + "。");
 		}
 
-		Object sessionIdValue = toolContext.getContext().get(SESSION_ID_CONTEXT_KEY);
+		Map<String, Object> context = toolContext.getContext();
+		Object sessionIdValue = context.get(SESSION_ID_CONTEXT_KEY);
+		// 兼容旧路径：RuntimeContext 以 "sessionId" 键注入 ToolContext 的场景
+		if (sessionIdValue == null) {
+			sessionIdValue = context.get("sessionId");
+		}
 		if (sessionIdValue instanceof String s && !s.isBlank()) {
 			return s;
 		}
 
-		logger.warn("[conversation_search] ToolContext 中未找到 '{}' — 回退到 session ID 'default'。",
-				SESSION_ID_CONTEXT_KEY);
-		return "default";
+		throw new IllegalArgumentException("无法搜索会话：ToolContext 中未找到 '" + SESSION_ID_CONTEXT_KEY
+				+ "' 上下文键。请通过 advisors 参数绑定当前会话 ID。");
 	}
 
 	public static Builder builder(ISessionManager sessionService) {

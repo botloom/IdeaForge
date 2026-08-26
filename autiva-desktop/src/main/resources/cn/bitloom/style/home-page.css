@@ -1883,3 +1883,17 @@
 .approval-card__btn:disabled {
     -fx-opacity: 0.5;
 }
+
+/* 系统通知 toast：悬浮胶囊，白色主题，出现在聊天区域上方 */
+.toast-label {
+    -fx-background-color: #ffffff;
+    -fx-background-radius: 18px;
+    -fx-padding: 10 18 10 18;
+    -fx-font-size: 13px;
+    -fx-font-family: "SF Pro Text", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    -fx-text-fill: #1d1d1f;
+    -fx-border-color: rgba(0, 0, 0, 0.08);
+    -fx-border-width: 1px;
+    -fx-border-radius: 18px;
+    -fx-effect: dropshadow(gaussian, rgba(0, 0, 0, 0.14), 20, 0, 0, 4);
+}

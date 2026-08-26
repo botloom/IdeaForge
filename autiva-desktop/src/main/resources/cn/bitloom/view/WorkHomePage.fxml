@@ -6,13 +6,14 @@
 <?import cn.bitloom.node.svg.SvgImageView?>
 <?import cn.bitloom.node.AutoResizeTextArea?>
 
-<VBox fx:id="homePage" styleClass="home-page" xmlns="http://javafx.com/javafx"
-      xmlns:fx="http://javafx.com/fxml" fx:controller="cn.bitloom.controller.WorkHomePageController"
-      alignment="CENTER"
-      VBox.vgrow="ALWAYS"
-      spacing="20"
-      stylesheets="@../style/home-page.css"
+<StackPane fx:id="homePage" xmlns="http://javafx.com/javafx"
+           xmlns:fx="http://javafx.com/fxml" fx:controller="cn.bitloom.controller.WorkHomePageController"
+           VBox.vgrow="ALWAYS"
+           stylesheets="@../style/home-page.css"
 >
+
+    <VBox fx:id="homePageContent" styleClass="home-page"
+          alignment="CENTER" spacing="20">
 
     <VBox fx:id="icon" styleClass="home-page__icon" alignment="CENTER">
         <SvgImageView fitWidth="120" fitHeight="120" svgPath="/cn/bitloom/images/icon.svg"/>
@@ -70,4 +71,14 @@
         </HBox>
     </VBox>
 
-</VBox>
+    </VBox>
+
+    <!-- 系统通知（toast）覆盖层：悬浮在页面顶部，不影响下方布局 -->
+    <StackPane fx:id="toastOverlay" StackPane.alignment="TOP_CENTER"
+               mouseTransparent="true" pickOnBounds="false">
+        <padding>
+            <Insets top="16"/>
+        </padding>
+    </StackPane>
+
+</StackPane>

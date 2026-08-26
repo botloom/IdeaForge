@@ -129,17 +129,18 @@ public class GitService {
     }
 
     /**
-     * 检查工作区是否干净（无未提交/未跟踪改动）。
+     * 检查工作区是否干净（无未提交/未暂存的已跟踪文件改动）。
+     * 未跟踪文件（untracked）不影响切换分支，故不计入"不干净"。
      *
      * @param projectPath 项目路径
-     * @return true 表示工作区干净；非 Git 仓库或失败返回 false
+     * @return true 表示已跟踪文件无改动；非 Git 仓库或失败返回 false
      */
     public boolean isWorkingTreeClean(Path projectPath) {
         if (!isGitRepository(projectPath)) {
             return false;
         }
         try {
-            ProcessBuilder pb = new ProcessBuilder("git", "status", "--porcelain");
+            ProcessBuilder pb = new ProcessBuilder("git", "status", "--porcelain", "--untracked-files=no");
             pb.directory(projectPath.toFile());
             pb.redirectErrorStream(true);
             Process process = pb.start();

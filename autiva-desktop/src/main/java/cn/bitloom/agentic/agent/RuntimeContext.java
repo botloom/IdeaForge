@@ -2,6 +2,7 @@ package cn.bitloom.agentic.agent;
 
 import cn.bitloom.agentic.event.EventPublisher;
 import lombok.Getter;
+import org.springframework.ai.chat.memory.ChatMemory;
 
 import java.util.HashMap;
 import java.util.Map;
@@ -53,6 +54,9 @@ public class RuntimeContext {
         Map<String, Object> map = new HashMap<>(params);
         if (sessionId != null) {
             map.put("sessionId", sessionId);
+            // ConversationSearchTool 等会话工具从 ToolContext 读取会话 ID。
+            // 统一使用 ChatMemory.CONVERSATION_ID 键名，与 SessionMemoryAdvisor 保持一致。
+            map.put(ChatMemory.CONVERSATION_ID, sessionId);
         }
         if (userId != null) {
             map.put("userId", userId);

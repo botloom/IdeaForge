@@ -16,6 +16,9 @@ import javafx.animation.Interpolator;
 import javafx.animation.KeyFrame;
 import javafx.animation.KeyValue;
 import javafx.animation.Timeline;
+import javafx.animation.FadeTransition;
+import javafx.animation.PauseTransition;
+import javafx.animation.SequentialTransition;
 import javafx.beans.binding.Bindings;
 import javafx.collections.ListChangeListener;
 import javafx.fxml.FXML;
@@ -24,6 +27,7 @@ import javafx.geometry.Insets;
 import javafx.geometry.Pos;
 import javafx.scene.Node;
 import javafx.scene.control.Button;
+import javafx.scene.control.Label;
 import javafx.scene.input.DragEvent;
 import javafx.scene.input.Dragboard;
 import javafx.scene.input.ScrollEvent;
@@ -31,6 +35,7 @@ import javafx.scene.input.TransferMode;
 import javafx.scene.layout.HBox;
 import javafx.scene.layout.Priority;
 import javafx.scene.layout.Region;
+import javafx.scene.layout.StackPane;
 import javafx.scene.layout.VBox;
 import javafx.stage.FileChooser;
 import javafx.util.Duration;
@@ -59,7 +64,9 @@ import java.util.regex.Pattern;
 public abstract class AbstractHomePageController implements Initializable, ButtonBarHolder, PageHolder {
 
     @FXML
-    protected VBox homePage;
+    protected StackPane homePage;
+    @FXML
+    protected VBox homePageContent;
     @FXML
     protected VBox sendBox;
     @FXML
@@ -78,6 +85,12 @@ public abstract class AbstractHomePageController implements Initializable, Butto
     protected VBox chatListContainer;
     protected VirtualizedScrollPane<VirtualFlow<MessageCard, MessageFlowCell>> chatScrollPane;
     protected VirtualFlow<MessageCard, MessageFlowCell> chatFlow;
+
+    /** 悬浮系统通知（toast）覆盖层宿主，叠加在 homePage 顶部，不影响原有布局 */
+    @FXML
+    private StackPane toastOverlay;
+    /** toast 容器（置于 toastOverlay 顶部，按出现顺序垂直堆叠） */
+    private VBox toastContainer;
 
     /**
      * 输入框中 tag 的文字标记格式：⟦📄展示文本⟧
@@ -203,7 +216,7 @@ public abstract class AbstractHomePageController implements Initializable, Butto
                     scrollToBottom();
                 }
             }
-            boolean hasMessages = !this.getViewModel().getMessages().isEmpty();
+            boolean hasMessages = hasRealMessages();
             onMessagesChanged(hasMessages);
             updateViewButtonVisibility(hasMessages);
         });
@@ -217,8 +230,21 @@ public abstract class AbstractHomePageController implements Initializable, Butto
         this.setupDragDrop();
 
         // 初始化完成后同步一次右上角视图按钮可见性（异步确保按钮已由 ButtonBar 创建）
-        boolean initialHasMessages = !this.getViewModel().getMessages().isEmpty();
+        boolean initialHasMessages = hasRealMessages();
         Platform.runLater(() -> updateViewButtonVisibility(initialHasMessages));
+    }
+
+    /**
+     * 判断 UI 消息流是否包含真实对话消息（排除系统通知卡片）。
+     * 系统通知（NotificationCard）不应被当作"已开始对话"，从而避免误锁定项目/分支选择。
+     */
+    protected boolean hasRealMessages() {
+        for (MessageCard card : this.getViewModel().getMessages()) {
+            if (!(card instanceof NotificationCard)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /**
@@ -571,7 +597,7 @@ public abstract class AbstractHomePageController implements Initializable, Butto
         chatScrollPane.estimatedScrollYProperty().addListener((obs, old, y) -> {
             double total = chatScrollPane.getTotalHeightEstimate();
             double viewport = chatScrollPane.getHeight();
-            if (total - y.doubleValue() <= viewport + 10) {
+            if (total - y <= viewport + 10) {
                 stickToBottom = true;
             }
         });
@@ -617,13 +643,55 @@ public abstract class AbstractHomePageController implements Initializable, Butto
             this.icon.setVisible(false);
             this.icon.setManaged(false);
 
-            this.homePage.setAlignment(Pos.BOTTOM_CENTER);
+            this.homePageContent.setAlignment(Pos.BOTTOM_CENTER);
 
             this.chatListContainer.setVisible(true);
             this.chatListContainer.setManaged(true);
         });
 
         timeline.play();
+    }
+
+    /**
+     * 在聊天区域上方以悬浮 toast（类似浏览器 alert）展示一条系统通知，数秒后自动淡出。不写入消息流。
+     */
+    public void showToast(String text) {
+        Platform.runLater(() -> {
+            if (toastOverlay == null) {
+                return;
+            }
+            // 若容器为空已从 overlay 移除，重建并重新挂载
+            if (toastContainer == null) {
+                toastContainer = new VBox(10);
+                // 子节点不填充拉伸，按内容自适应宽度（受 min/max 约束）
+                toastContainer.setFillWidth(false);
+                toastContainer.setAlignment(Pos.TOP_CENTER);
+                StackPane.setAlignment(toastContainer, Pos.TOP_CENTER);
+                toastOverlay.getChildren().add(toastContainer);
+            }
+            Label label = new Label(text);
+            label.setMinWidth(90);
+            label.setMaxWidth(420);
+            label.setWrapText(true);
+            label.getStyleClass().add("toast-label");
+            toastContainer.getChildren().add(label);
+
+            // 淡入 → 停留 → 淡出并移除
+            label.setOpacity(0);
+            FadeTransition fadeIn = new FadeTransition(Duration.millis(180), label);
+            fadeIn.setToValue(1);
+            PauseTransition hold = new PauseTransition(Duration.millis(2800));
+            FadeTransition fadeOut = new FadeTransition(Duration.millis(320), label);
+            fadeOut.setToValue(0);
+            fadeOut.setOnFinished(e -> {
+                toastContainer.getChildren().remove(label);
+                if (toastContainer.getChildren().isEmpty() && toastOverlay != null) {
+                    toastOverlay.getChildren().remove(toastContainer);
+                    toastContainer = null;
+                }
+            });
+            new SequentialTransition(fadeIn, hold, fadeOut).play();
+        });
     }
 
     @Override
@@ -664,7 +732,7 @@ public abstract class AbstractHomePageController implements Initializable, Butto
         if (!this.getViewModel().getMessages().isEmpty()) {
             animateToChatState();
         } else {
-            this.homePage.setAlignment(Pos.CENTER);
+            this.homePageContent.setAlignment(Pos.CENTER);
             VBox.setMargin(this.sendBox, new Insets(0, 0, 0, 0));
             this.chatListContainer.setVisible(false);
             this.chatListContainer.setManaged(false);

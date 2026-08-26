@@ -441,7 +441,20 @@ public class CodeHomePageViewModel extends AbstractHomePageViewModel {
         if (project == null) {
             return false;
         }
-        if (!gitService.switchBranch(java.nio.file.Path.of(project.path()), branch)) {
+        java.nio.file.Path projectPath = java.nio.file.Path.of(project.path());
+        if (!gitService.isWorkingTreeClean(projectPath)) {
+            return false;
+        }
+        if (!gitService.switchBranch(projectPath, branch)) {
+            return false;
+        }
+        // 以 git 实际当前分支为准：若切换未生效（与目标不符），回滚 UI 并视为失败
+        String actual = gitService.getCurrentBranch(projectPath).orElse(null);
+        if (actual == null || !actual.equals(branch)) {
+            ProjectInfo stale = projectRegistry.refreshBranch(project.id());
+            if (stale != null) {
+                currentProject.set(stale);
+            }
             return false;
         }
         ProjectInfo updated = projectRegistry.refreshBranch(project.id());
@@ -449,6 +462,17 @@ public class CodeHomePageViewModel extends AbstractHomePageViewModel {
             currentProject.set(updated);
         }
         return true;
+    }
+
+    /**
+     * 以悬浮 toast 展示一条系统通知（如分支切换结果），不写入聊天消息流。
+     */
+    public void showNotice(String text) {
+        javafx.application.Platform.runLater(() -> {
+            if (toolUIBridge != null) {
+                toolUIBridge.showToast(text);
+            }
+        });
     }
 
     @Override

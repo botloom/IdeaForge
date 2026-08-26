@@ -2,9 +2,9 @@ package cn.bitloom.controller;
 
 import cn.bitloom.bridge.desktop.ToolUIBridge;
 import cn.bitloom.constant.AgentMode;
+import cn.bitloom.holder.ButtonBarHolder;
 import cn.bitloom.node.SlashCommandPopup;
 import cn.bitloom.node.message.InputTag;
-import cn.bitloom.holder.ButtonBarHolder;
 import cn.bitloom.project.ProjectInfo;
 import cn.bitloom.store.Store;
 import cn.bitloom.vm.AbstractHomePageViewModel;
@@ -12,9 +12,10 @@ import cn.bitloom.vm.CodeHomePageViewModel;
 import cn.bitloom.window.WindowManager;
 import javafx.application.Platform;
 import javafx.fxml.FXML;
-import javafx.geometry.Bounds;
 import javafx.scene.Node;
-import javafx.scene.control.*;
+import javafx.scene.control.MenuButton;
+import javafx.scene.control.MenuItem;
+import javafx.scene.control.SeparatorMenuItem;
 import javafx.scene.layout.VBox;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
@@ -325,7 +326,6 @@ public class CodeHomePageController extends AbstractHomePageController {
 
     private void refreshBranchDisplay(ProjectInfo project) {
         refreshBranchMenu(project);
-        refreshBranchTooltip(project);
         if (project == null || project.gitBranch() == null || project.gitBranch().isBlank()) {
             branchDisplayButton.setText("");
             branchDisplayButton.setDisable(true);
@@ -363,29 +363,24 @@ public class CodeHomePageController extends AbstractHomePageController {
         }
     }
 
-    /**
-     * 刷新分支按钮悬浮提示：工作区不干净时提示暂不能切换分支。
-     */
-    private void refreshBranchTooltip(ProjectInfo project) {
-        if (project != null && !viewModel.isWorkingTreeClean()) {
-            javafx.scene.control.Tooltip tip = new javafx.scene.control.Tooltip("工作区存在未提交改动，暂不能切换分支");
-            branchDisplayButton.setTooltip(tip);
-        } else {
-            branchDisplayButton.setTooltip(null);
-        }
-    }
-
     private void handleSwitchBranch(String branch) {
-        // 限制条件 2：工作区不干净不能切换分支
+        // 限制条件 2：工作区不干净不能切换分支，以消息通知提示
         if (!viewModel.isWorkingTreeClean()) {
-            Store.warnMessage.set("工作区存在未提交改动，请先提交或暂存后再切换分支");
+            showBranchNotice("工作区存在未提交改动，请先提交或暂存后再切换分支");
             return;
         }
         if (viewModel.switchCurrentProjectBranch(branch)) {
-            log.info("已切换到分支: {}", branch);
+            showBranchNotice("已切换到分支 " + branch);
         } else {
-            Store.warnMessage.set("切换分支失败，请检查仓库状态");
+            showBranchNotice("切换分支失败，请检查仓库状态后重试");
         }
+    }
+
+    /**
+     * 在当前聊天流显示一条分支操作消息通知卡片。
+     */
+    private void showBranchNotice(String text) {
+        this.viewModel.showNotice(text);
     }
 
     // ===== 按钮配置 =====
