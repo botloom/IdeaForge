@@ -8,6 +8,7 @@ import javafx.scene.Node;
 import javafx.scene.layout.Region;
 import javafx.scene.layout.VBox;
 import javafx.scene.text.Font;
+import javafx.scene.text.FontPosture;
 import javafx.scene.text.Text;
 import javafx.scene.text.TextFlow;
 import lombok.Getter;
@@ -29,8 +30,11 @@ public class AssistantMessageCard extends MessageCard {
     private final ObjectProperty<String> finishReason = new SimpleObjectProperty<>(null);
     private final BooleanProperty streaming = new SimpleBooleanProperty(false);
 
+    // 思考内容（reasoning_content，DeepSeek 等模型思维链）
+    private final StringProperty reasoning = new SimpleStringProperty("");
     // 流式累积器
     private final StringBuilder accumulator = new StringBuilder();
+    private final StringBuilder reasoningAccumulator = new StringBuilder();
     private boolean isStreamingActive = false;
 
     @Setter
@@ -39,6 +43,10 @@ public class AssistantMessageCard extends MessageCard {
     // 流式期间复用的组件
     private TextFlow streamingContainer = null;
     private Text streamingText = null;
+
+    // 思考区域组件（Claude 式：斜体浅灰内联，无折叠无色块）
+    private TextFlow thinkingBody = null;
+    private Text thinkingText = null;
 
     /** 节流标志：同一 FX 脉冲内多次 chunk 只调度一次 flush，避免逐 chunk 触发 setText+reflow */
     private boolean textUpdateScheduled = false;
@@ -84,6 +92,17 @@ public class AssistantMessageCard extends MessageCard {
         }
     }
 
+    /**
+     * 带初始内容与思考内容构造（用于历史消息恢复）。
+     */
+    public AssistantMessageCard(String initialContent, String initialReasoning, String finishReason) {
+        this(initialContent, finishReason);
+        if (initialReasoning != null) {
+            reasoningAccumulator.append(initialReasoning);
+            reasoning.set(initialReasoning);
+        }
+    }
+
     // ===== MessageCard 接口实现 =====
 
     @Override
@@ -104,6 +123,46 @@ public class AssistantMessageCard extends MessageCard {
 
     public void setContent(String value) {
         content.set(value);
+    }
+
+    // ===== 思考内容（reasoning） =====
+
+    public StringProperty reasoningProperty() {
+        return reasoning;
+    }
+
+    public String getReasoning() {
+        return reasoning.get();
+    }
+
+    public void setReasoning(String value) {
+        reasoning.set(value);
+    }
+
+    public boolean hasReasoning() {
+        String r = reasoning.get();
+        return r != null && !r.isBlank();
+    }
+
+    /**
+     * 更新流式思考内容（覆盖语义：Spring AI 2.0.1+ 的流式 reasoningContent 为累积值，
+     * 每个 chunk 携带从头到当前的完整思考文本，直接替换而非追加）。
+     */
+    public void updateReasoning(String fullText) {
+        String text = fullText != null ? fullText : "";
+        reasoningAccumulator.setLength(0);
+        reasoningAccumulator.append(text);
+        reasoning.set(text);
+        if (thinkingBody == null && !text.isBlank()) {
+            // 首次出现思考内容：把思考区域插入到 children 最前
+            insertThinkingSection();
+        }
+        if (thinkingText != null) {
+            thinkingText.setText(text);
+        }
+        if (onContentChanged != null) {
+            onContentChanged.accept(getContent());
+        }
     }
 
     public ObjectProperty<String> finishReasonProperty() {
@@ -160,11 +219,11 @@ public class AssistantMessageCard extends MessageCard {
     }
 
     /**
-     * 判断消息内容是否有效（非空）。
+     * 判断消息内容是否有效（非空）。含思考内容即视为有效（保留卡片）。
      */
     public boolean isValid() {
         String c = content.get();
-        return c == null || c.isBlank();
+        return (c == null || c.isBlank()) && !hasReasoning();
     }
 
     // ===== 渲染逻辑 =====
@@ -221,12 +280,56 @@ public class AssistantMessageCard extends MessageCard {
         this.getStyleClass().add("chat-message--streaming");
     }
 
+    /**
+     * 构建思考区域并插入到 children 最前。
+     * Claude 式：斜体浅灰小字标题「思考」+ 斜体浅灰思考内容，默认展开、无折叠无色块。
+     * 首次调用负责构建并缓存节点；后续调用负责把已缓存节点重新挂载（renderMarkdown 清空后）。
+     */
+    private void insertThinkingSection() {
+        if (thinkingBody == null) {
+            Text thinkingHeader = new Text("思考");
+            thinkingHeader.getStyleClass().add("thinking-header");
+            thinkingHeader.setFont(Font.font(FONT_FAMILY, FontPosture.ITALIC, 12));
+
+            thinkingBody = new TextFlow();
+            thinkingBody.getStyleClass().add("thinking-body");
+            thinkingBody.setMaxWidth(Double.MAX_VALUE);
+
+            thinkingText = new Text(reasoningAccumulator.toString());
+            thinkingText.getStyleClass().add("thinking-text");
+            thinkingText.setFont(Font.font(FONT_FAMILY, FontPosture.ITALIC, 14));
+            thinkingBody.getChildren().add(thinkingText);
+
+            VBox section = new VBox(4);
+            section.getStyleClass().add("thinking-section");
+            section.getChildren().addAll(thinkingHeader, thinkingBody);
+            section.setMaxWidth(Double.MAX_VALUE);
+        }
+
+        // 确保思考区位于 children 最前：未挂载（首次 / renderMarkdown clear 后）则挂载，
+        // 已挂载但不在最前则移动。
+        javafx.scene.Node section = thinkingBody.getParent();
+        int idx = this.getChildren().indexOf(section);
+        if (idx != 0) {
+            if (idx > 0) {
+                this.getChildren().remove(section);
+            }
+            this.getChildren().add(0, section);
+        }
+    }
+
     private void renderMarkdown(String content) {
         this.getChildren().clear();
         this.getStyleClass().remove("chat-message--streaming");
 
         streamingContainer = null;
         streamingText = null;
+
+        boolean hasReasoning = hasReasoning();
+        // 思考区域：rendered 前确保思考折叠区已挂载（含首次构建与 clear 后重新挂载）
+        if (hasReasoning) {
+            insertThinkingSection();
+        }
 
         if (content == null || content.isBlank()) {
             return;

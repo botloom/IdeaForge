@@ -282,8 +282,9 @@ public abstract class AbstractHomePageViewModel {
                     if (currentState != null) currentState.savedMessages.add(card);
                 } else if (me.isAssistantMessage()) {
                     String text = me.getText();
-                    if (text != null && !text.isBlank()) {
-                        AssistantMessageCard card = new AssistantMessageCard(text, "STOP");
+                    String reasoning = me.getReasoningContent();
+                    if ((text != null && !text.isBlank()) || (reasoning != null && !reasoning.isBlank())) {
+                        AssistantMessageCard card = new AssistantMessageCard(text, reasoning, "STOP");
                         messages.add(card);
                         if (currentState != null) currentState.savedMessages.add(card);
                     }
@@ -821,6 +822,11 @@ public abstract class AbstractHomePageViewModel {
     private void processAssistantEvent(MessageEvent e, SessionRuntimeState state, boolean isActive) {
         String finishReason = e.getFinishReason();
         String text = e.getText();
+        String reasoning = e.getReasoningContent();
+        log.info("[reasoning-debug] assistant chunk: finishReason={}, textLen={}, reasoningLen={}, metaKeys={}",
+                finishReason, text == null ? 0 : text.length(), reasoning == null ? 0 : reasoning.length(),
+                e.getMessage() instanceof org.springframework.ai.chat.messages.AssistantMessage am
+                        ? am.getMetadata().keySet() : "n/a");
 
         if (finishReason == null || finishReason.isBlank() || "_UNKNOWN".equals(finishReason)) {
             // 流式 chunk：直接累积。per-session isPaused 控制是否累积
@@ -830,7 +836,8 @@ public abstract class AbstractHomePageViewModel {
             if (state.currentAssistantCard == null) {
                 // 空文本的 chunk（如工具间 silent revision：无文本、仅继续调用工具）不构成
                 // 新的 AI 话语，不新建卡片、也不重置工具分组，保证连续工具合并为同一组。
-                if (text == null || text.isBlank()) {
+                if ((text == null || text.isBlank())
+                        && (reasoning == null || reasoning.isBlank())) {
                     return;
                 }
                 state.currentAssistantCard = new AssistantMessageCard();
@@ -839,7 +846,12 @@ public abstract class AbstractHomePageViewModel {
                 // 新一条 AI 话语开始（出现实质文本）：此后的工具调用归属于新的一组
                 state.needNewToolGroup = true;
             }
-            state.currentAssistantCard.appendContent(text);
+            if (reasoning != null && !reasoning.isBlank()) {
+                state.currentAssistantCard.updateReasoning(reasoning);
+            }
+            if (text != null && !text.isBlank()) {
+                state.currentAssistantCard.appendContent(text);
+            }
         } else if ("STOP".equals(finishReason)) {
             // 结束流式
             state.isStreaming = false;

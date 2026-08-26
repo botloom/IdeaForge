@@ -536,6 +536,23 @@
     -fx-text-fill: #1d1d1f;
 }
 
+/* 思考内容：Claude 式，斜体浅灰内联，默认展开无折叠无色块 */
+.chat-message--assistant .thinking-section {
+    -fx-padding: 0 0 8 0;
+}
+
+.chat-message--assistant .thinking-header {
+    -fx-fill: #a1a1a6;
+}
+
+.chat-message--assistant .thinking-body {
+    -fx-padding: 0;
+}
+
+.chat-message--assistant .thinking-text {
+    -fx-fill: #86868b;
+}
+
 .chat-message--streaming {
     -fx-effect: null;
 }

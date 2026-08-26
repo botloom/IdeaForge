@@ -143,6 +143,19 @@ public final class MessageEvent extends AbstractEvent {
         return null;
     }
 
+    /**
+     * 思考内容（reasoning_content）。流式 chunk 与最终消息的 AssistantMessage metadata
+     * 中由 OpenAI Starter 以 "reasoningContent" key 承载；无则为 null。
+     */
+    @JsonIgnore
+    public String getReasoningContent() {
+        if (message instanceof AssistantMessage am) {
+            Object v = am.getMetadata().get("reasoningContent");
+            return v != null ? v.toString() : null;
+        }
+        return null;
+    }
+
     @JsonIgnore
     public List<ToolCallInfo> getToolCalls() {
         if (message instanceof AssistantMessage am && am.hasToolCalls()) {

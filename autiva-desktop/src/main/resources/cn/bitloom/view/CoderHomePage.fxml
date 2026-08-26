@@ -59,7 +59,7 @@
             </MenuButton>
             <MenuButton fx:id="modelSelectButton" styleClass="home-page__model-menu-btn" prefHeight="37">
                 <graphic>
-                    <SvgImageView fitWidth="16" fitHeight="16" svgPath="/cn/bitloom/images/dna.svg"/>
+                    <SvgImageView fitWidth="16" fitHeight="16" svgPath="/cn/bitloom/images/model.svg"/>
                 </graphic>
                 <HBox.margin>
                     <Insets bottom="8"/>

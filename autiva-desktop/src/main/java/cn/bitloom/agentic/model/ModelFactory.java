@@ -48,7 +48,7 @@ public class ModelFactory {
                                 .baseUrl(config.baseUrl())
                                 .apiKey(config.apiKey())
                                 .model(config.chatModel())
-                                .extraBody(Map.of("thinking", Map.of("type", "disabled")))
+                                .extraBody(Map.of("thinking", Map.of("type", "enabled")))
                                 .timeout(Duration.ZERO)
                                 .maxRetries(3)
                                 .build()

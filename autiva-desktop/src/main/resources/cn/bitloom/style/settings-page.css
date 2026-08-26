@@ -204,6 +204,13 @@
     -fx-padding: 0 0 8 0;
 }
 
+/* 设置页操作按钮统一 32px 高度（覆盖 button-bar.css 的 dynamic-btn 默认 26px） */
+.settings-page .dynamic-btn {
+    -fx-pref-height: 32px;
+    -fx-min-height: 32px;
+    -fx-max-height: 32px;
+}
+
 .settings-page__model-row {
     -fx-padding: 12 16;
     -fx-spacing: 12;

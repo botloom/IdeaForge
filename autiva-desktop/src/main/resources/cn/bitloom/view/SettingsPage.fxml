@@ -15,7 +15,6 @@
     <HBox styleClass="button-bar" VBox.vgrow="NEVER">
         <Region HBox.hgrow="ALWAYS"/>
         <Button styleClass="dynamic-btn" text="保存" onAction="#onSave"/>
-        <Button styleClass="dynamic-btn" text="重置" onAction="#onReset"/>
     </HBox>
     <ScrollPane fitToWidth="true" fitToHeight="true" hbarPolicy="NEVER" VBox.vgrow="ALWAYS"
                 styleClass="settings-page__scroll-pane" prefWidth="600" maxWidth="700">
@@ -55,7 +54,7 @@
                 <HBox styleClass="settings-page__section-head" alignment="CENTER_LEFT">
                     <Label text="模型配置" styleClass="settings-page__section-label"/>
                     <Region HBox.hgrow="ALWAYS"/>
-                    <Button fx:id="addModelButton" text="添加模型" styleClass="settings-page__secondary-btn"
+                    <Button fx:id="addModelButton" text="添加模型" styleClass="dynamic-btn"
                             onAction="#onAddModel"/>
                 </HBox>
                 <VBox fx:id="modelListContainer" styleClass="settings-page__card"/>

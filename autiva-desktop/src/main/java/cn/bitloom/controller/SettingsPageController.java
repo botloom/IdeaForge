@@ -67,6 +67,7 @@ public class SettingsPageController implements Initializable, WindowManager.Stag
     private VBox modelListContainer;
 
     private ChangeListener<WechatILinkClient.State> weixinStateListener;
+    private Stage stage;
 
     @Override
     public double getWidth() {
@@ -85,6 +86,7 @@ public class SettingsPageController implements Initializable, WindowManager.Stag
 
     @Override
     public void setStage(Stage stage) {
+        this.stage = stage;
         stage.setMinWidth(600);
         stage.setMinHeight(500);
     }
@@ -107,12 +109,9 @@ public class SettingsPageController implements Initializable, WindowManager.Stag
     private void onSave() {
         viewModel.save();
         refreshModelList();
-    }
-
-    @FXML
-    private void onReset() {
-        viewModel.reset();
-        refreshModelList();
+        if (stage != null) {
+            stage.close();
+        }
     }
 
     private void bindViewModel() {
@@ -147,11 +146,11 @@ public class SettingsPageController implements Initializable, WindowManager.Stag
         info.getChildren().addAll(name, detail);
 
         Button editBtn = new Button("编辑");
-        editBtn.getStyleClass().add("settings-page__secondary-btn");
+        editBtn.getStyleClass().add("dynamic-btn");
         editBtn.setOnAction(e -> openModelDialog(config));
 
         Button deleteBtn = new Button("删除");
-        deleteBtn.getStyleClass().add("settings-page__secondary-btn");
+        deleteBtn.getStyleClass().add("dynamic-btn");
         deleteBtn.setOnAction(e -> {
             viewModel.deleteModel(config.id());
             refreshModelList();
