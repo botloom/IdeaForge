@@ -1,6 +1,5 @@
 package cn.bitloom.store;
 
-import cn.bitloom.agentic.model.ModelTypeEnum;
 import javafx.beans.property.*;
 
 public class Store {
@@ -8,7 +7,8 @@ public class Store {
 
     public static final StringProperty userId = new SimpleStringProperty("default");
 
-    public static final ObjectProperty<ModelTypeEnum> selectedModel = new SimpleObjectProperty<>(ModelTypeEnum.DEEPSEEK);
+    /** 当前选中的模型 id（对应 ConfigManager 中 app.models.list 的 id） */
+    public static final StringProperty selectedModel = new SimpleStringProperty("");
 
     public static final StringProperty currentSessionId = new SimpleStringProperty();
 

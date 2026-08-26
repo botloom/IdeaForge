@@ -9,7 +9,6 @@ import cn.bitloom.agentic.skill.SkillManager;
 import cn.bitloom.agentic.memory.FileSystemAgentMemoryStore;
 import cn.bitloom.agentic.memory.MemoryConsolidator;
 import cn.bitloom.agentic.model.ModelFactory;
-import cn.bitloom.agentic.model.ModelTypeEnum;
 import cn.bitloom.agentic.session.EventFilter;
 import cn.bitloom.agentic.session.FileSystemSessionManager;
 import cn.bitloom.agentic.session.MessageFilter;
@@ -95,9 +94,7 @@ public class SubAgentFactory {
                     + "，可用定义: " + definitionManager.getSubagentDefinitions().stream()
                             .map(AgentDefinition::name).toList());
         }
-        ModelTypeEnum modelType = Store.selectedModel.get() != null ? Store.selectedModel.get()
-                : ModelTypeEnum.DEEPSEEK;
-        ChatModel chatModel = modelFactory.model(modelType);
+        ChatModel chatModel = modelFactory.model(Store.selectedModel.get());
         String uid = parentSession.userId() != null ? parentSession.userId() : "default-user";
 
         List<Advisor> advisors = new ArrayList<>();

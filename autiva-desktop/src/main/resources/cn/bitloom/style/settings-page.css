@@ -198,6 +198,28 @@
     -fx-min-height: 40;
 }
 
+/* ===== 模型管理 ===== */
+.settings-page__section-head {
+    -fx-alignment: center-left;
+    -fx-padding: 0 0 8 0;
+}
+
+.settings-page__model-row {
+    -fx-padding: 12 16;
+    -fx-spacing: 12;
+    -fx-alignment: center-left;
+}
+
+.model-edit-dialog {
+    -fx-padding: 20;
+    -fx-background-color: #ffffff;
+    -fx-spacing: 14;
+}
+
+.model-edit-dialog__actions {
+    -fx-padding: 6 0 0 0;
+}
+
 /* 用户登录卡片 */
 .settings-page__user-row {
     -fx-padding: 12 16;

@@ -18,7 +18,6 @@ import cn.bitloom.agentic.event.MessageEvent;
 import cn.bitloom.agentic.memory.FileSystemAgentMemoryStore;
 import cn.bitloom.agentic.memory.MemoryConsolidator;
 import cn.bitloom.agentic.model.ModelFactory;
-import cn.bitloom.agentic.model.ModelTypeEnum;
 import cn.bitloom.agentic.session.FileSystemSessionManager;
 import cn.bitloom.agentic.session.MessageFilter;
 import cn.bitloom.agentic.session.Session;
@@ -384,8 +383,7 @@ public class CronManager {
      */
     private Agent buildAgent(Session session, String agentId) {
         AgentDefinition definition = definitionManager.getOrLoadMainDefinition(agentId);
-        ModelTypeEnum modelType = Store.selectedModel.get() != null ? Store.selectedModel.get() : ModelTypeEnum.DEEPSEEK;
-        ChatModel chatModel = modelFactory.model(modelType);
+        ChatModel chatModel = modelFactory.model(Store.selectedModel.get());
         String uid = session.userId() != null ? session.userId() : "default-user";
 
         List<Advisor> advisors = new ArrayList<>();

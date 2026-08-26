@@ -1,5 +1,6 @@
 package cn.bitloom.controller;
 
+import cn.bitloom.agentic.model.ModelConfig;
 import cn.bitloom.bridge.wechat.WechatILinkClient;
 import cn.bitloom.holder.DialogHolder;
 import cn.bitloom.vm.SettingsPageViewModel;
@@ -12,14 +13,19 @@ import javafx.application.Platform;
 import javafx.beans.value.ChangeListener;
 import javafx.fxml.FXML;
 import javafx.fxml.Initializable;
+import javafx.geometry.Insets;
+import javafx.geometry.Pos;
+import javafx.scene.control.Button;
+import javafx.scene.control.Label;
+import javafx.scene.control.PasswordField;
+import javafx.scene.control.TextField;
 import javafx.scene.image.ImageView;
 import javafx.scene.image.PixelFormat;
 import javafx.scene.image.WritableImage;
+import javafx.scene.layout.HBox;
+import javafx.scene.layout.Priority;
+import javafx.scene.layout.Region;
 import javafx.scene.layout.VBox;
-import javafx.scene.control.Label;
-import javafx.scene.control.Button;
-import javafx.scene.control.PasswordField;
-import javafx.scene.control.TextField;
 import javafx.stage.Stage;
 import lombok.Getter;
 import lombok.RequiredArgsConstructor;
@@ -37,6 +43,7 @@ public class SettingsPageController implements Initializable, WindowManager.Stag
 
     private final SettingsPageViewModel viewModel;
     private final ApplicationContext applicationContext;
+    private final WindowManager windowManager;
 
     @FXML
     private VBox settingsPage;
@@ -57,13 +64,7 @@ public class SettingsPageController implements Initializable, WindowManager.Stag
     @FXML
     private PasswordField bochaApiKeyField;
     @FXML
-    private PasswordField deepseekApiKeyField;
-    @FXML
-    private TextField deepseekBaseUrlField;
-    @FXML
-    private TextField deepseekCompletionsPathField;
-    @FXML
-    private TextField deepseekChatModelField;
+    private VBox modelListContainer;
 
     private ChangeListener<WechatILinkClient.State> weixinStateListener;
 
@@ -98,26 +99,94 @@ public class SettingsPageController implements Initializable, WindowManager.Stag
      */
     public void reload() {
         viewModel.loadFromStore();
+        refreshModelList();
         updateWeixinStatus();
     }
 
     @FXML
     private void onSave() {
         viewModel.save();
+        refreshModelList();
     }
 
     @FXML
     private void onReset() {
         viewModel.reset();
+        refreshModelList();
     }
 
     private void bindViewModel() {
         bochaApiKeyField.textProperty().bindBidirectional(viewModel.getBochaApiKey());
-        deepseekApiKeyField.textProperty().bindBidirectional(viewModel.getDeepseekApiKey());
-        deepseekBaseUrlField.textProperty().bindBidirectional(viewModel.getDeepseekBaseUrl());
-        deepseekCompletionsPathField.textProperty().bindBidirectional(viewModel.getDeepseekCompletionsPath());
-        deepseekChatModelField.textProperty().bindBidirectional(viewModel.getDeepseekChatModel());
     }
+
+    // ===== 模型管理 =====
+
+    /**
+     * 重建模型列表卡片：每个模型一行（名称+模型名，编辑/删除按钮）。
+     */
+    private void refreshModelList() {
+        modelListContainer.getChildren().clear();
+        var models = viewModel.listModels();
+        if (models.isEmpty()) {
+            Label empty = new Label("暂无模型，点击下方“添加模型”新建");
+            empty.getStyleClass().add("settings-page__row-subtitle");
+            modelListContainer.getChildren().add(empty);
+            return;
+        }
+        for (ModelConfig config : models) {
+            modelListContainer.getChildren().add(buildModelRow(config));
+        }
+    }
+
+    private HBox buildModelRow(ModelConfig config) {
+        VBox info = new VBox(2);
+        Label name = new Label(config.name());
+        name.getStyleClass().add("settings-page__row-title");
+        Label detail = new Label(config.chatModel() + " · " + config.baseUrl());
+        detail.getStyleClass().add("settings-page__row-subtitle");
+        info.getChildren().addAll(name, detail);
+
+        Button editBtn = new Button("编辑");
+        editBtn.getStyleClass().add("settings-page__secondary-btn");
+        editBtn.setOnAction(e -> openModelDialog(config));
+
+        Button deleteBtn = new Button("删除");
+        deleteBtn.getStyleClass().add("settings-page__secondary-btn");
+        deleteBtn.setOnAction(e -> {
+            viewModel.deleteModel(config.id());
+            refreshModelList();
+        });
+
+        HBox actions = new HBox(8, editBtn, deleteBtn);
+        actions.setAlignment(Pos.CENTER_RIGHT);
+
+        HBox row = new HBox(12, info, new Region(), actions);
+        row.getStyleClass().add("settings-page__model-row");
+        HBox.setHgrow(info, Priority.NEVER);
+        HBox.setHgrow(row.getChildren().get(1), Priority.ALWAYS);
+        HBox.setMargin(info, new Insets(8, 0, 8, 0));
+        return row;
+    }
+
+    @FXML
+    private void onAddModel() {
+        openModelDialog(null);
+    }
+
+    /**
+     * 打开模型编辑对话框（owner 为设置窗口；编辑回填后保存即生效）。
+     */
+    private void openModelDialog(ModelConfig original) {
+        windowManager.showDialog("cn/bitloom/view/ModelEditDialog.fxml",
+                settingsPage.getScene() == null ? null : settingsPage.getScene().getWindow(),
+                (ModelEditDialogController ctrl) -> ctrl.configure(original,
+                        config -> {
+                            viewModel.saveModel(config);
+                            refreshModelList();
+                        }));
+    }
+
+    // ===== 微信绑定 =====
 
     private void updateWeixinStatus() {
         if (weixinStateListener != null) {

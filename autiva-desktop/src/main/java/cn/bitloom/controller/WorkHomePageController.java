@@ -24,8 +24,10 @@ public class WorkHomePageController extends AbstractHomePageController {
 
     public WorkHomePageController(ToolUIBridge toolUIBridge,
                                   WindowManager windowManager,
+                                  cn.bitloom.agentic.model.ModelFactory modelFactory,
+                                  cn.bitloom.config.ConfigManager configManager,
                                   WorkHomePageViewModel viewModel) {
-        super(toolUIBridge, windowManager);
+        super(toolUIBridge, windowManager, modelFactory, configManager);
         this.viewModel = viewModel;
     }
 

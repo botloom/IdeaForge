@@ -109,9 +109,7 @@ public class AutivaToolCallingManager implements ToolCallingManager {
 
                 String toolResult;
                 try {
-                    log.info("[ToolCall] 调用工具: name='{}', input='{}'", toolName, toolInput);
                     toolResult = toolCallback.call(toolInput, toolContext);
-                    log.info("[ToolCall] 工具 {} 执行完成, 结果长度={}", toolName, toolResult != null ? toolResult.length() : 0);
                 } catch (ToolExecutionException ex) {
                     log.error("[ToolCall] 工具 {} 抛出 ToolExecutionException: {}", toolName, ex.getMessage(), ex);
                     toolResult = DefaultToolExecutionExceptionProcessor.builder().build().process(ex);
@@ -119,20 +117,17 @@ public class AutivaToolCallingManager implements ToolCallingManager {
                     // 可能是 JSON 参数解析失败，也可能是工具内部抛出的 IllegalStateException（如 shell 启动失败）
                     // 记录完整异常栈以便区分
                     log.error("[ToolCall] 工具 {} 抛出 IllegalStateException: {}", toolName, ex.getMessage(), ex);
-                    String errorMsg = ToolResult.error(
+                    toolResult = ToolResult.error(
                             "工具执行异常: " + ex.getMessage(),
                             Map.of("raw_input", toolInput)).toJson();
-                    toolResult = errorMsg;
                 } catch (Exception ex) {
                     // 兜底：捕获所有未预期的异常，记录完整栈
                     log.error("[ToolCall] 工具 {} 抛出未预期异常 {}: {}", toolName, ex.getClass().getName(), ex.getMessage(), ex);
-                    String errorMsg = ToolResult.error(
+                    toolResult = ToolResult.error(
                             "工具执行未预期异常: " + ex.getClass().getSimpleName() + ": " + ex.getMessage(),
                             Map.of("raw_input", toolInput)).toJson();
-                    toolResult = errorMsg;
                 }
-                toolResponses.add(new ToolResponseMessage.ToolResponse(
-                        toolCall.id(), toolName, toolResult));
+                toolResponses.add(new ToolResponseMessage.ToolResponse(toolCall.id(), toolName, toolResult));
             }
         }
 

@@ -1,6 +1,6 @@
 package cn.bitloom.controller;
 
-import cn.bitloom.agentic.model.ModelTypeEnum;
+import cn.bitloom.agentic.model.ModelFactory;
 import cn.bitloom.bridge.desktop.ToolUIBridge;
 import cn.bitloom.holder.ButtonBarHolder;
 import cn.bitloom.holder.PageHolder;
@@ -28,6 +28,10 @@ import javafx.geometry.Pos;
 import javafx.scene.Node;
 import javafx.scene.control.Button;
 import javafx.scene.control.Label;
+import javafx.scene.control.MenuButton;
+import javafx.scene.control.MenuItem;
+import javafx.scene.control.RadioMenuItem;
+import javafx.scene.control.ToggleGroup;
 import javafx.scene.input.DragEvent;
 import javafx.scene.input.Dragboard;
 import javafx.scene.input.ScrollEvent;
@@ -80,6 +84,8 @@ public abstract class AbstractHomePageController implements Initializable, Butto
     @FXML
     protected Button canvasButton;
     @FXML
+    protected MenuButton modelSelectButton;
+    @FXML
     protected VBox icon;
     @FXML
     protected VBox chatListContainer;
@@ -113,14 +119,18 @@ public abstract class AbstractHomePageController implements Initializable, Butto
     protected final ToolUIBridge toolUIBridge;
     @Getter
     protected final WindowManager windowManager;
+    protected final ModelFactory modelFactory;
 
     @Getter
     @Setter
     protected IndexController indexController;
 
-    protected AbstractHomePageController(ToolUIBridge toolUIBridge, WindowManager windowManager) {
+    protected AbstractHomePageController(ToolUIBridge toolUIBridge, WindowManager windowManager,
+                                         ModelFactory modelFactory, cn.bitloom.config.ConfigManager configManager) {
         this.toolUIBridge = toolUIBridge;
         this.windowManager = windowManager;
+        this.modelFactory = modelFactory;
+        this.configManager = configManager;
     }
 
     /**
@@ -130,8 +140,14 @@ public abstract class AbstractHomePageController implements Initializable, Butto
 
     @Override
     public void initialize(URL location, ResourceBundle resources) {
-        // 默认使用 DeepSeek 模型
-        Store.selectedModel.set(ModelTypeEnum.DEEPSEEK);
+        // 选中配置中的模型（空则回退到第一个）
+        if (Store.selectedModel.get() == null || Store.selectedModel.get().isBlank()) {
+            var configs = modelFactory.listModels();
+            if (!configs.isEmpty()) {
+                Store.selectedModel.set(configs.get(0).id());
+            }
+        }
+        setupModelMenu();
 
         this.sendButton.setOnAction(event -> this.handleSendMessage());
         this.stopButton.setOnAction(event -> this.getViewModel().pauseGeneration());
@@ -268,6 +284,72 @@ public abstract class AbstractHomePageController implements Initializable, Butto
      */
     protected boolean isSendInputLocked() {
         return false;
+    }
+
+    // ===== 对话区模型选择 =====
+
+    /** 模型单选组 */
+    private ToggleGroup modelToggleGroup;
+    /** 选中模型持久化 */
+    private final cn.bitloom.config.ConfigManager configManager;
+
+    /**
+     * 初始化模型选择下拉：每次展开时按最新配置重建菜单项（设置页增删改后无需重启）。
+     * 切换模型仅影响下一轮对话（Agent 复用 per-session 缓存，发送时按选中 id 重建）。
+     */
+    private void setupModelMenu() {
+        modelToggleGroup = new ToggleGroup();
+        modelSelectButton.showingProperty().addListener((obs, wasShowing, showing) -> {
+            if (showing) {
+                rebuildModelMenu();
+            }
+        });
+        rebuildModelMenu();
+        // 选中模型变化时刷新按钮文字
+        Store.selectedModel.addListener((obs, oldVal, newVal) -> refreshModelButtonText());
+        refreshModelButtonText();
+    }
+
+    /**
+     * 按当前配置重建模型菜单：RadioMenuItem 单选。
+     */
+    private void rebuildModelMenu() {
+        modelSelectButton.getItems().clear();
+        var configs = modelFactory.listModels();
+        if (configs.isEmpty()) {
+            MenuItem empty = new MenuItem("未配置模型，请在设置中添加");
+            empty.setDisable(true);
+            modelSelectButton.getItems().add(empty);
+        } else {
+            for (var config : configs) {
+                RadioMenuItem item = new RadioMenuItem(config.name());
+                item.setToggleGroup(modelToggleGroup);
+                item.setSelected(config.id().equals(Store.selectedModel.get()));
+                item.setOnAction(e -> {
+                    Store.selectedModel.set(config.id());
+                    // 持久化选中模型
+                    configManager.setSelectedModelId(config.id());
+                    configManager.save();
+                    refreshModelButtonText();
+                });
+                modelSelectButton.getItems().add(item);
+            }
+        }
+    }
+
+    /** 当前选中模型显示名；未命中配置时显示 id */
+    private void refreshModelButtonText() {
+        String id = Store.selectedModel.get();
+        String text = id;
+        if (id != null && !id.isBlank()) {
+            for (var config : modelFactory.listModels()) {
+                if (config.id().equals(id)) {
+                    text = config.name();
+                    break;
+                }
+            }
+        }
+        modelSelectButton.setText(text == null || text.isBlank() ? "选择模型" : text);
     }
 
     /**

@@ -54,8 +54,10 @@ public class CodeHomePageController extends AbstractHomePageController {
 
     public CodeHomePageController(ToolUIBridge toolUIBridge,
                                   WindowManager windowManager,
+                                  cn.bitloom.agentic.model.ModelFactory modelFactory,
+                                  cn.bitloom.config.ConfigManager configManager,
                                   CodeHomePageViewModel viewModel) {
-        super(toolUIBridge, windowManager);
+        super(toolUIBridge, windowManager, modelFactory, configManager);
         this.viewModel = viewModel;
     }
 

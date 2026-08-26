@@ -24,7 +24,6 @@ import cn.bitloom.agentic.hook.ToolResultOffloadHook;
 import cn.bitloom.agentic.memory.FileSystemAgentMemoryStore;
 import cn.bitloom.agentic.memory.MemoryConsolidator;
 import cn.bitloom.agentic.model.ModelFactory;
-import cn.bitloom.agentic.model.ModelTypeEnum;
 import cn.bitloom.agentic.session.*;
 import cn.bitloom.agentic.session.compaction.TokenCountCompactionStrategy;
 import cn.bitloom.agentic.session.compaction.TokenCountTrigger;
@@ -372,8 +371,7 @@ public abstract class AbstractHomePageViewModel {
      */
     protected Agent buildAgent(Session session, String agentId) {
         AgentDefinition definition = definitionManager.getOrLoadMainDefinition(agentId);
-        ModelTypeEnum modelType = Store.selectedModel.get() != null ? Store.selectedModel.get() : ModelTypeEnum.DEEPSEEK;
-        ChatModel chatModel = modelFactory.model(modelType);
+        ChatModel chatModel = modelFactory.model(Store.selectedModel.get());
         String uid = session.userId() != null ? session.userId() : "default-user";
 
         List<Advisor> advisors = new ArrayList<>();
