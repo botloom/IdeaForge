@@ -1,12 +1,18 @@
 package cn.bitloom.vm;
 
+import cn.bitloom.agentic.agent.AgentDefinition;
 import cn.bitloom.agentic.agent.AgentDefinitionManager;
 import cn.bitloom.agentic.model.ModelFactory;
 import cn.bitloom.agentic.session.FileSystemSessionManager;
+import cn.bitloom.agentic.session.SessionTypeEnum;
 import cn.bitloom.agentic.tool.Toolkit;
+import cn.bitloom.agentic.tool.command.ShellSession;
+import cn.bitloom.constant.AppConstants;
+import cn.bitloom.store.Store;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
+import java.nio.file.Path;
 import java.util.List;
 
 /**
@@ -36,6 +42,23 @@ public class WorkHomePageViewModel extends AbstractHomePageViewModel {
     @Override
     protected String buildMessageWithContext(String text) {
         return text;
+    }
+
+    @Override
+    protected Path resolveMemoryDir() {
+        // work 模式使用全局工作记忆目录
+        return AppConstants.Memory.workMemoryDir();
+    }
+
+    @Override
+    protected String buildSessionId() {
+        return "work-" + SessionTypeEnum.DM + "-" + "desktopApp" + "-" + Store.userId.get() + "-" + System.currentTimeMillis();
+    }
+
+    @Override
+    protected String buildSystemPrompt(AgentDefinition definition) {
+        // work 模式无项目：仅附环境块（Working directory = 持久化 cwd）
+        return definition.content() + ShellSession.envBlock();
     }
 
     @Override

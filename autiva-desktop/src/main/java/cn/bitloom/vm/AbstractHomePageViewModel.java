@@ -30,15 +30,11 @@ import cn.bitloom.agentic.session.compaction.TokenCountCompactionStrategy;
 import cn.bitloom.agentic.session.compaction.TokenCountTrigger;
 import cn.bitloom.agentic.skill.SkillManager;
 import cn.bitloom.agentic.tool.Toolkit;
-import cn.bitloom.agentic.tool.command.ShellSession;
 import cn.bitloom.agentic.tool.plan.ExitPlanModeTool;
 import cn.bitloom.agentic.tool.session.ConversationSearchTool;
 import cn.bitloom.agentic.tool.session.CrossSessionSearchTool;
-import cn.bitloom.constant.AgentMode;
-import cn.bitloom.constant.AppConstants;
 import cn.bitloom.node.message.*;
 import cn.bitloom.node.tool.ToolCallCard;
-import cn.bitloom.project.ProjectInfo;
 import cn.bitloom.store.Store;
 import javafx.application.Platform;
 import javafx.beans.property.BooleanProperty;
@@ -56,12 +52,10 @@ import org.springframework.ai.tokenizer.JTokkitTokenCountEstimator;
 import org.springframework.ai.tool.ToolCallback;
 import reactor.core.Disposable;
 
-import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Consumer;
@@ -83,12 +77,6 @@ import java.util.function.Consumer;
  */
 @Slf4j
 public abstract class AbstractHomePageViewModel {
-
-    /** Plan Mode 工具白名单：只读探索 + 交互（ExitPlanMode 由 buildAgent 单独追加） */
-    private static final Set<String> PLAN_MODE_ALLOWED = Set.of(
-            "Read", "Glob", "Grep", "WebFetch", "WebSearch",
-            "TodoWrite", "AskUserQuestion",
-            "ConversationSearch", "CrossSessionSearch");
 
     /** Task（子智能体）工具名：由 ToolUIBridge 单独渲染 TaskCard，不参与 ToolCallCard 组。 */
     private static final String TASK_TOOL_NAME = "Task";
@@ -132,31 +120,6 @@ public abstract class AbstractHomePageViewModel {
 
     public BooleanProperty historyLoadingProperty() {
         return historyLoading;
-    }
-
-    /**
-     * Plan Mode（计划模式）：开启后构建的智能体仅保留只读探索工具，
-     * 系统提示词注入计划模式指令，完成后经 ExitPlanMode 提交计划等待批准。
-     * 切换后需 evictAgent 使下一次消息按新模式重建智能体。
-     */
-    private final BooleanProperty planMode = new SimpleBooleanProperty(false);
-
-    public BooleanProperty planModeProperty() {
-        return planMode;
-    }
-
-    public boolean isPlanMode() {
-        return planMode.get();
-    }
-
-    /**
-     * Goal Loop 活跃状态：目标设置后为 true，达成 / 无法达成 / 暂停 / 清除后为 false。
-     * goal 按钮据此显示开关态。
-     */
-    private final BooleanProperty goalActive = new SimpleBooleanProperty(false);
-
-    public BooleanProperty goalActiveProperty() {
-        return goalActive;
     }
 
     /** session 切换回调：通知 Controller 重置 todo 卡片等 */
@@ -208,9 +171,6 @@ public abstract class AbstractHomePageViewModel {
         // 下一次 sendMessage 经 computeIfAbsent 重建，工具池即含最新 MCP 工具。
         // 正在流式处理中的 Agent 不受影响（引用仍被持有），新工具自下一轮对话生效。
         mcpConnectionManager.addChangeListener(sessionAgents::clear);
-        // Goal Loop 自动续轮：GoalJudgeHook / 后台任务通知通过 GoalManager 触发，
-        // 本 VM 仅处理自己管理过的 session（sessionStates 路由），非本 VM 的静默忽略。
-        goalManager.registerContinuation(this::continueRound);
     }
 
     public void createNewSession() {
@@ -368,73 +328,43 @@ public abstract class AbstractHomePageViewModel {
     // ===== Agent 构建 =====
 
     /**
-     * 获取当前项目（code 模式由子类提供，work 模式返回 null）。
+     * 决定 memory 根目录。由子类按模式实现：work 用全局目录，code 用项目目录。
      */
-    protected ProjectInfo getCurrentProject() {
-        return null;
+    protected abstract Path resolveMemoryDir();
+
+    /**
+     * 生成 sessionId。由子类按模式实现：work 用 work 前缀，code 前缀并编码 projectName。
+     */
+    protected abstract String buildSessionId();
+
+    /**
+     * 构建 systemPrompt。由子类按模式实现：work 仅附环境块，code 注入项目规则并支持计划模式。
+     */
+    protected abstract String buildSystemPrompt(AgentDefinition definition);
+
+    /**
+     * 模式专有工具调整钩子：基类默认原样返回，不做任何裁剪。
+     * code 子类在计划模式下覆盖为实现只读工具裁剪 + 追加 ExitPlanMode。
+     */
+    protected List<ToolCallback> applyPlanModeTools(List<ToolCallback> allTools) {
+        return allTools;
     }
 
     /**
-     * 根据 mode 和 project 决定 memory 根目录。
+     * 模式专有 Hook 追加钩子：基类默认空实现。
+     * code 子类覆盖以注册 GoalJudgeHook（目标闭环）、计划提交等。
      */
-    protected Path resolveMemoryDir(String agentId, ProjectInfo project) {
-        AgentMode mode = AgentMode.fromAgentId(agentId);
-        if (mode == AgentMode.WORK) {
-            return AppConstants.Memory.workMemoryDir();
-        }
-        // code 模式：project 必须存在（code 模式必须选择项目）
-        if (project == null) {
-            throw new IllegalStateException("code 模式必须先选择项目");
-        }
-        return AppConstants.Memory.projectMemoryDir(project.name());
+    protected void appendModeHooks(List<IAgentHook> hooks, ChatModel chatModel,
+                                   cn.bitloom.agentic.memory.FileSystemAgentMemoryStore memoryStore) {
+        // work 模式无 goal/plan 专有 hook
     }
 
     /**
-     * 生成 sessionId（code 模式编码 projectName）。
+     * session 创建时补充模式专有元数据：基类默认不写入。
+     * code 子类覆盖以写入 projectId/projectName。
      */
-    protected String buildSessionId(String agentId) {
-        AgentMode mode = AgentMode.fromAgentId(agentId);
-        if (mode == AgentMode.CODE) {
-            ProjectInfo project = getCurrentProject();
-            if (project == null) {
-                throw new IllegalStateException("code 模式必须先选择项目");
-            }
-            return "code-" + project.name() + "-" + SessionTypeEnum.DM + "-" + "desktopApp" + "-" + Store.userId.get() + "-" + System.currentTimeMillis();
-        }
-        return "work-" + SessionTypeEnum.DM + "-" + "desktopApp" + "-" + Store.userId.get() + "-" + System.currentTimeMillis();
-    }
-
-    /**
-     * 构建 systemPrompt（code 模式注入全局规则和项目规则；计划模式追加计划指令）。
-     */
-    protected String buildSystemPrompt(String agentId, AgentDefinition definition) {
-        String systemPrompt = definition.content();
-        if (AgentMode.fromAgentId(agentId) != AgentMode.CODE) {
-            return systemPrompt + ShellSession.envBlock();
-        }
-        ProjectInfo project = getCurrentProject();
-        if (project != null) {
-            try {
-                Path projectRules = Path.of(project.path()).resolve("AUTIVA.md");
-                if (Files.exists(projectRules)) {
-                    systemPrompt += "\n\n# 项目规则\n" + Files.readString(projectRules);
-                }
-            } catch (Exception e) {
-                log.warn("读取项目规则失败: {}", project.path(), e);
-            }
-        }
-        // 计划模式：注入只读约束与计划提交要求
-        if (planMode.get()) {
-            systemPrompt += "\n\n# 计划模式\n"
-                    + "你正处于计划模式：只允许只读探索（读文件、搜索、查网页），"
-                    + "严禁创建、修改、删除文件或执行任何有副作用的命令。\n"
-                    + "任务：针对用户需求充分调研代码库后，制定具体到文件级的实施计划，"
-                    + "然后调用 ExitPlanMode 工具提交计划等待用户批准。\n"
-                    + "计划必须包含：将创建/修改的文件与各自改动要点、实施步骤顺序、风险与回滚方式。\n"
-                    + "用户给出反馈时，按反馈调整计划并重新提交；不要在计划模式下开始实施。";
-        }
-        // code 模式注入项目路径作为 Working directory，让 LLM 感知项目根目录
-        return systemPrompt + ShellSession.envBlock(project != null ? project.path() : null);
+    protected void applySessionMetadata(CreateSessionRequest.Builder builder) {
+        // work 模式无项目元数据
     }
 
     /**
@@ -464,7 +394,7 @@ public abstract class AbstractHomePageViewModel {
                 .build();
         advisors.add(sessionMemoryAdvisor);
 
-        Path memoriesDir = resolveMemoryDir(agentId, getCurrentProject());
+        Path memoriesDir = resolveMemoryDir();
         // 记忆自动化三件套共享同一 store：
         // (a) 选择式召回——仅首轮注入相关记忆背景；(b) 回合提取 Hook——见下方 hooks；
         // (c) 整理触发器——文件数 ≥ 阈值时注入 reminder 并由 Hook 异步整理
@@ -495,16 +425,8 @@ public abstract class AbstractHomePageViewModel {
         allTools.add(ConversationSearchTool.builder(sessionManager).build().toToolCallback());
         allTools.add(CrossSessionSearchTool.builder(sessionManager, uid).build().toToolCallback());
 
-        // 计划模式：仅保留只读探索工具，追加 ExitPlanMode（计划提交出口）
-        if (planMode.get()) {
-            allTools = new ArrayList<>(allTools.stream()
-                    .filter(tc -> PLAN_MODE_ALLOWED.contains(tc.getToolDefinition().name()))
-                    .toList());
-            allTools.add(ExitPlanModeTool.builder()
-                    .listener(this::onPlanSubmitted)
-                    .build()
-                    .toToolCallback());
-        }
+        // 模式专有工具调整（code 模式：计划模式裁剪为只读工具并追加 ExitPlanMode）
+        allTools = applyPlanModeTools(allTools);
 
         // 基础 Hook 集：预算保护 / 权限审批 / Todo 提醒 / 工具结果落盘（每次 new，避免状态串扰）
         List<IAgentHook> hooks = new ArrayList<>();
@@ -519,19 +441,14 @@ public abstract class AbstractHomePageViewModel {
                 .memoryStore(memoryStore)
                 .chatClient(ChatClient.builder(chatModel).build())
                 .build());
-        // Goal Loop（s17 目标闭环）：独立判断器复核目标达成，未达成自动续轮
-        hooks.add(cn.bitloom.agentic.goal.GoalJudgeHook.builder()
-                .goalManager(goalManager)
-                .sessionManager(sessionManager)
-                .chatClient(ChatClient.builder(chatModel).build())
-                .listener(this::onGoalUpdated)
-                .build());
+        // 模式专有 Hook（code 模式：GoalJudgeHook 目标闭环）
+        appendModeHooks(hooks, chatModel, memoryStore);
 
         Agent agent = Agent.builder()
                 .name(agentId)
                 .definition(definition)
                 .model(chatModel)
-                .systemPrompt(buildSystemPrompt(agentId, definition))
+                .systemPrompt(buildSystemPrompt(definition))
                 .tools(allTools)
                 .hooks(hooks)
                 .advisors(advisors)
@@ -550,15 +467,12 @@ public abstract class AbstractHomePageViewModel {
     protected Session ensureSession() {
         if (this.session == null) {
             String agentId = Store.currentAgent.get();
-            String sessionId = buildSessionId(agentId);
+            String sessionId = buildSessionId();
             CreateSessionRequest.Builder builder = CreateSessionRequest.builder()
                     .id(sessionId)
                     .userId(Store.userId.get());
-            ProjectInfo project = getCurrentProject();
-            if (project != null) {
-                builder.metadata("projectId", project.id());
-                builder.metadata("projectName", project.name());
-            }
+            // 模式专有补充元数据（code 模式写入 projectId/projectName）
+            applySessionMetadata(builder);
             this.session = sessionManager.create(builder.build());
             Store.currentSessionId.set(this.session.id());
         }
@@ -763,39 +677,11 @@ public abstract class AbstractHomePageViewModel {
     }
 
     /**
-     * 解析 session 的 projectPath（Goal 续轮时 session 可能非 active，
-     * 按 session.metadata 的 projectId 解析而非当前 UI 状态）。
+     * 解析 session 的 projectPath。work 模式无项目，返回 null。
+     * code 子类按 session.metadata 的 projectId 解析（Goal 续轮时 session 可能非 active）。
      */
     protected String resolveProjectPath(Session session) {
-        ProjectInfo project = getCurrentProject();
-        return project != null ? project.path() : null;
-    }
-
-    /**
-     * Goal 状态更新回调（GoalJudgeHook listener）：更新 GoalCard + 终态通知。
-     * /goal 命令设置目标后复用此方法刷新卡片。
-     */
-    protected void onGoalUpdated(String sessionId, cn.bitloom.agentic.goal.GoalState state) {
-        // 同步 goal 按钮开关态：active 进行中，其余终态关闭
-        boolean active = cn.bitloom.agentic.goal.GoalState.STATUS_ACTIVE.equals(state.getStatus());
-        goalActive.set(active);
-        String goalJson = cn.bitloom.util.JsonUtils.toJson(Map.of(
-                "goal", state.getGoal(),
-                "status", state.getStatus(),
-                "judgeCount", state.getJudgeCount(),
-                "blockedCount", state.getBlockedCount(),
-                "lastReason", state.getLastReason() != null ? state.getLastReason() : ""));
-        if (toolUIBridge != null) {
-            toolUIBridge.showGoal(goalJson, sessionId);
-            if (cn.bitloom.agentic.goal.GoalState.STATUS_ACHIEVED.equals(state.getStatus())) {
-                toolUIBridge.showNotification("目标已达成（判定 " + state.getJudgeCount() + " 次）", sessionId);
-            } else if (cn.bitloom.agentic.goal.GoalState.STATUS_IMPOSSIBLE.equals(state.getStatus())) {
-                toolUIBridge.showNotification("目标无法达成：" + state.getLastReason(), sessionId);
-            } else if (cn.bitloom.agentic.goal.GoalState.STATUS_BLOCKED.equals(state.getStatus())) {
-                toolUIBridge.showNotification("目标续轮已暂停（连续 " + state.getBlockedCount()
-                        + " 次未通过判定）：" + state.getLastReason(), sessionId);
-            }
-        }
+        return null;
     }
 
     // ===== 事件处理 =====

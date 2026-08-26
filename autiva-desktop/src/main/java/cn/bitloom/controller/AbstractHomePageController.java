@@ -379,10 +379,11 @@ public abstract class AbstractHomePageController implements Initializable, Butto
     }
 
     /**
-     * 切换 session 时重置 todo 卡片引用，确保只显示当前 active session 的产物。
+     * 切换 session 时重置编辑器面板卡片引用，确保只显示当前 active session 的产物。
+     * work 模式无编辑器面板，默认空实现；code 子类 override（如重置 goal 卡片）。
      */
-    private void clearEditorPanelCards() {
-        toolUIBridge.resetGoalCard();
+    protected void clearEditorPanelCards() {
+        // work 模式无专有编辑器卡片
     }
 
     /**
@@ -655,7 +656,6 @@ public abstract class AbstractHomePageController implements Initializable, Butto
     public void resetForNewSession() {
         this.sendField.clear();
         this.tags.clear();
-        toolUIBridge.resetGoalCard();
 
         // 子类专有重置逻辑
         onResetForNewSession();

@@ -1,23 +1,41 @@
 package cn.bitloom.vm;
 
-import cn.bitloom.project.ProjectInfo;
-import cn.bitloom.project.ProjectRegistry;
+import cn.bitloom.agentic.agent.AgentDefinition;
 import cn.bitloom.agentic.agent.AgentDefinitionManager;
+import cn.bitloom.agentic.goal.GoalJudgeHook;
+import cn.bitloom.agentic.goal.GoalState;
+import cn.bitloom.agentic.hook.IAgentHook;
+import cn.bitloom.agentic.memory.FileSystemAgentMemoryStore;
 import cn.bitloom.agentic.model.ModelFactory;
+import cn.bitloom.agentic.session.CreateSessionRequest;
 import cn.bitloom.agentic.session.FileSystemSessionManager;
 import cn.bitloom.agentic.session.Session;
+import cn.bitloom.agentic.session.SessionTypeEnum;
 import cn.bitloom.agentic.tool.Toolkit;
+import cn.bitloom.agentic.tool.command.ShellSession;
 import cn.bitloom.agentic.tool.plan.ExitPlanModeTool;
 import cn.bitloom.constant.AgentMode;
+import cn.bitloom.constant.AppConstants;
 import cn.bitloom.node.tool.PlanApprovalCard;
+import cn.bitloom.project.ProjectInfo;
+import cn.bitloom.project.ProjectRegistry;
 import cn.bitloom.store.Store;
+import cn.bitloom.util.JsonUtils;
 import javafx.application.Platform;
+import javafx.beans.property.BooleanProperty;
 import javafx.beans.property.ObjectProperty;
+import javafx.beans.property.SimpleBooleanProperty;
 import javafx.beans.property.SimpleObjectProperty;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.ai.chat.client.ChatClient;
+import org.springframework.ai.chat.model.ChatModel;
+import org.springframework.ai.tool.ToolCallback;
 import org.springframework.stereotype.Component;
 
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 
 /**
@@ -35,11 +53,28 @@ import java.util.concurrent.CompletableFuture;
 @Component
 public class CodeHomePageViewModel extends AbstractHomePageViewModel {
 
+    /** Plan Mode 工具白名单：只读探索 + 交互（ExitPlanMode 由 applyPlanModeTools 单独追加） */
+    private static final java.util.Set<String> PLAN_MODE_ALLOWED = java.util.Set.of(
+            "Read", "Glob", "Grep", "WebFetch", "WebSearch",
+            "TodoWrite", "AskUserQuestion",
+            "ConversationSearch", "CrossSessionSearch");
+
     private final ProjectRegistry projectRegistry;
     private final ObjectProperty<ProjectInfo> currentProject = new SimpleObjectProperty<>();
 
     /** 已批准待执行的计划（批准时记录，当前计划模式流结束后自动发起执行轮） */
     private volatile PendingPlan pendingPlan;
+
+    /**
+     * Plan Mode（计划模式）：code 模式经 /plan 命令开关。
+     * 开启后构建的智能体仅保留只读探索工具，经 ExitPlanMode 提交计划等待批准。
+     */
+    private final BooleanProperty planMode = new SimpleBooleanProperty(false);
+
+    /**
+     * Goal Loop 活跃状态：目标设置后为 true，达成 / 无法达成 / 暂停 / 清除后为 false。
+     */
+    private final BooleanProperty goalActive = new SimpleBooleanProperty(false);
 
     private record PendingPlan(String sessionId, String plan) {
     }
@@ -58,6 +93,9 @@ public class CodeHomePageViewModel extends AbstractHomePageViewModel {
         super(fileSystemSessionManager, definitionManager, modelFactory, toolkit, skillManager, approvalStrategies,
                 configManager, mcpConnectionManager, goalManager, toolUIBridge);
         this.projectRegistry = projectRegistry;
+        // Goal Loop 自动续轮：GoalJudgeHook / 后台任务通知通过 GoalManager 触发，
+        // 本 VM 仅处理自己管理过的 session（sessionStates 路由），非本 VM 的静默忽略。
+        goalManager.registerContinuation(this::continueRound);
     }
 
     /**
@@ -71,9 +109,24 @@ public class CodeHomePageViewModel extends AbstractHomePageViewModel {
         currentProject.set(project);
     }
 
-    @Override
+    /**
+     * code 模式当前项目（供 Controller / 内部便捷访问）。
+     * 基类不定义此方法，work 模式无项目概念。
+     */
     public ProjectInfo getCurrentProject() {
         return currentProject.get();
+    }
+
+    public BooleanProperty planModeProperty() {
+        return planMode;
+    }
+
+    public boolean isPlanMode() {
+        return planMode.get();
+    }
+
+    public BooleanProperty goalActiveProperty() {
+        return goalActive;
     }
 
     /**
@@ -81,7 +134,7 @@ public class CodeHomePageViewModel extends AbstractHomePageViewModel {
      * Goal 自动续轮时 goal session 可能已非 active，不能依赖当前 UI 的 currentProject。
      */
     @Override
-    protected String resolveProjectPath(cn.bitloom.agentic.session.Session session) {
+    protected String resolveProjectPath(Session session) {
         Object projectId = session.metadata() != null ? session.metadata().get("projectId") : null;
         if (projectId != null) {
             return projectRegistry.findById(projectId.toString())
@@ -89,6 +142,118 @@ public class CodeHomePageViewModel extends AbstractHomePageViewModel {
                     .orElse(null);
         }
         return null;
+    }
+
+    @Override
+    protected Path resolveMemoryDir() {
+        // code 模式：memory 落在项目目录下，项目必须已选择
+        ProjectInfo project = getCurrentProject();
+        if (project == null) {
+            throw new IllegalStateException("code 模式必须先选择项目");
+        }
+        return AppConstants.Memory.projectMemoryDir(project.name());
+    }
+
+    @Override
+    protected String buildSessionId() {
+        ProjectInfo project = getCurrentProject();
+        if (project == null) {
+            throw new IllegalStateException("code 模式必须先选择项目");
+        }
+        return "code-" + project.name() + "-" + SessionTypeEnum.DM + "-" + "desktopApp" + "-" + Store.userId.get() + "-" + System.currentTimeMillis();
+    }
+
+    @Override
+    protected String buildSystemPrompt(AgentDefinition definition) {
+        String systemPrompt = definition.content();
+        ProjectInfo project = getCurrentProject();
+        if (project != null) {
+            try {
+                // 注入项目规则（AUTIVA.md）
+                Path projectRules = Path.of(project.path()).resolve("AUTIVA.md");
+                if (Files.exists(projectRules)) {
+                    systemPrompt += "\n\n# 项目规则\n" + Files.readString(projectRules);
+                }
+            } catch (Exception e) {
+                log.warn("读取项目规则失败: {}", project.path(), e);
+            }
+        }
+        // 计划模式：注入只读约束与计划提交要求
+        if (isPlanMode()) {
+            systemPrompt += "\n\n# 计划模式\n"
+                    + "你正处于计划模式：只允许只读探索（读文件、搜索、查网页），"
+                    + "严禁创建、修改、删除文件或执行任何有副作用的命令。\n"
+                    + "任务：针对用户需求充分调研代码库后，制定具体到文件级的实施计划，"
+                    + "然后调用 ExitPlanMode 工具提交计划等待用户批准。\n"
+                    + "计划必须包含：将创建/修改的文件与各自改动要点、实施步骤顺序、风险与回滚方式。\n"
+                    + "用户给出反馈时，按反馈调整计划并重新提交；不要在计划模式下开始实施。";
+        }
+        // code 模式注入项目路径作为 Working directory，让 LLM 感知项目根目录
+        return systemPrompt + ShellSession.envBlock(project != null ? project.path() : null);
+    }
+
+    @Override
+    protected List<ToolCallback> applyPlanModeTools(List<ToolCallback> allTools) {
+        if (!isPlanMode()) {
+            return allTools;
+        }
+        // 计划模式：仅保留只读探索工具，追加 ExitPlanMode（计划提交出口）
+        List<ToolCallback> filtered = new java.util.ArrayList<>(allTools.stream()
+                .filter(tc -> PLAN_MODE_ALLOWED.contains(tc.getToolDefinition().name()))
+                .toList());
+        filtered.add(ExitPlanModeTool.builder()
+                .listener(this::onPlanSubmitted)
+                .build()
+                .toToolCallback());
+        return filtered;
+    }
+
+    @Override
+    protected void appendModeHooks(List<IAgentHook> hooks, ChatModel chatModel,
+                                   FileSystemAgentMemoryStore memoryStore) {
+        // Goal Loop（目标闭环）：独立判断器复核目标达成，未达成自动续轮
+        hooks.add(GoalJudgeHook.builder()
+                .goalManager(goalManager)
+                .sessionManager(sessionManager)
+                .chatClient(ChatClient.builder(chatModel).build())
+                .listener(this::onGoalUpdated)
+                .build());
+    }
+
+    @Override
+    protected void applySessionMetadata(CreateSessionRequest.Builder builder) {
+        ProjectInfo project = getCurrentProject();
+        if (project != null) {
+            builder.metadata("projectId", project.id());
+            builder.metadata("projectName", project.name());
+        }
+    }
+
+    /**
+     * Goal 状态更新回调（GoalJudgeHook listener）：更新 GoalCard + 终态通知。
+     * /goal 命令设置目标后复用此方法刷新卡片。
+     */
+    protected void onGoalUpdated(String sessionId, GoalState state) {
+        // 同步 goal 按钮开关态：active 进行中，其余终态关闭
+        boolean active = GoalState.STATUS_ACTIVE.equals(state.getStatus());
+        goalActive.set(active);
+        String goalJson = JsonUtils.toJson(Map.of(
+                "goal", state.getGoal(),
+                "status", state.getStatus(),
+                "judgeCount", state.getJudgeCount(),
+                "blockedCount", state.getBlockedCount(),
+                "lastReason", state.getLastReason() != null ? state.getLastReason() : ""));
+        if (toolUIBridge != null) {
+            toolUIBridge.showGoal(goalJson, sessionId);
+            if (GoalState.STATUS_ACHIEVED.equals(state.getStatus())) {
+                toolUIBridge.showNotification("目标已达成（判定 " + state.getJudgeCount() + " 次）", sessionId);
+            } else if (GoalState.STATUS_IMPOSSIBLE.equals(state.getStatus())) {
+                toolUIBridge.showNotification("目标无法达成：" + state.getLastReason(), sessionId);
+            } else if (GoalState.STATUS_BLOCKED.equals(state.getStatus())) {
+                toolUIBridge.showNotification("目标续轮已暂停（连续 " + state.getBlockedCount()
+                        + " 次未通过判定）：" + state.getLastReason(), sessionId);
+            }
+        }
     }
 
     /**

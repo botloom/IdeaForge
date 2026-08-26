@@ -332,6 +332,17 @@ public class CodeHomePageController extends AbstractHomePageController {
 
     @Override
     protected void onResetForNewSession() {
+        // code 模式：重置 goal 卡片引用
+        toolUIBridge.resetGoalCard();
+    }
+
+    /**
+     * 切换 session 时重置编辑器面板卡片：code 模式重置 goal 卡片引用，
+     * 确保只显示当前 active session 的目标闭环产物。
+     */
+    @Override
+    protected void clearEditorPanelCards() {
+        toolUIBridge.resetGoalCard();
     }
 
     /**
