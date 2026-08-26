@@ -264,6 +264,7 @@ public class CodeHomePageController extends AbstractHomePageController {
 
     private void updateSelectorLockState(boolean locked) {
         projectSelectButton.setDisable(locked);
+        branchDisplayButton.setDisable(locked);
     }
 
     private void setupProjectMenu() {
@@ -319,8 +320,64 @@ public class CodeHomePageController extends AbstractHomePageController {
     private void refreshBranchDisplay(ProjectInfo project) {
         if (project == null || project.gitBranch() == null || project.gitBranch().isBlank()) {
             branchDisplayButton.setText("");
+            branchDisplayButton.setDisable(true);
+            branchDisplayButton.setOnAction(null);
         } else {
             branchDisplayButton.setText(project.gitBranch());
+            branchDisplayButton.setDisable(false);
+            branchDisplayButton.setOnAction(e -> openBranchMenu());
+        }
+    }
+
+    /**
+     * 打开分支切换菜单：列出本地分支，当前分支高亮不可选，点击其它分支执行切换。
+     * 工作区不干净时禁止切换（仅提示）。
+     */
+    private void openBranchMenu() {
+        ProjectInfo project = viewModel.getCurrentProject();
+        if (project == null) {
+            return;
+        }
+        // 限制条件 2：工作区不干净不能切换分支
+        if (!viewModel.isWorkingTreeClean()) {
+            Store.warnMessage.set("工作区存在未提交改动，请先提交或暂存后再切换分支");
+            return;
+        }
+
+        javafx.scene.control.ContextMenu menu = new javafx.scene.control.ContextMenu();
+        menu.getStyleClass().add("external-open-menu");
+        String current = project.gitBranch();
+        List<String> branches = viewModel.listBranches();
+        if (branches.isEmpty()) {
+            javafx.scene.control.MenuItem empty = new javafx.scene.control.MenuItem("无可用分支");
+            empty.setDisable(true);
+            menu.getItems().add(empty);
+        } else {
+            for (String branch : branches) {
+                javafx.scene.control.MenuItem item = new javafx.scene.control.MenuItem(branch);
+                if (branch.equals(current)) {
+                    item.setDisable(true);
+                } else {
+                    item.setOnAction(ev -> handleSwitchBranch(branch));
+                }
+                menu.getItems().add(item);
+            }
+        }
+
+        javafx.geometry.Bounds bounds = branchDisplayButton.localToScreen(branchDisplayButton.getBoundsInLocal());
+        if (bounds != null) {
+            menu.show(branchDisplayButton, bounds.getMinX(), bounds.getMaxY());
+        } else {
+            menu.show(branchDisplayButton, branchDisplayButton.getLayoutX(),
+                    branchDisplayButton.getLayoutY() + branchDisplayButton.getBoundsInLocal().getHeight());
+        }
+    }
+
+    private void handleSwitchBranch(String branch) {
+        if (viewModel.switchCurrentProjectBranch(branch)) {
+            log.info("已切换到分支: {}", branch);
+        } else {
+            Store.warnMessage.set("切换分支失败，请检查仓库状态");
         }
     }
 

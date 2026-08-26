@@ -60,6 +60,7 @@ public class CodeHomePageViewModel extends AbstractHomePageViewModel {
             "ConversationSearch", "CrossSessionSearch");
 
     private final ProjectRegistry projectRegistry;
+    private final cn.bitloom.project.GitService gitService;
     private final ObjectProperty<ProjectInfo> currentProject = new SimpleObjectProperty<>();
 
     /** 已批准待执行的计划（批准时记录，当前计划模式流结束后自动发起执行轮） */
@@ -89,10 +90,12 @@ public class CodeHomePageViewModel extends AbstractHomePageViewModel {
                                  cn.bitloom.agentic.tool.mcp.McpConnectionManager mcpConnectionManager,
                                  cn.bitloom.agentic.goal.GoalManager goalManager,
                                  cn.bitloom.bridge.desktop.ToolUIBridge toolUIBridge,
-                                 ProjectRegistry projectRegistry) {
+                                 ProjectRegistry projectRegistry,
+                                 cn.bitloom.project.GitService gitService) {
         super(fileSystemSessionManager, definitionManager, modelFactory, toolkit, skillManager, approvalStrategies,
                 configManager, mcpConnectionManager, goalManager, toolUIBridge);
         this.projectRegistry = projectRegistry;
+        this.gitService = gitService;
         // Goal Loop 自动续轮：GoalJudgeHook / 后台任务通知通过 GoalManager 触发，
         // 本 VM 仅处理自己管理过的 session（sessionStates 路由），非本 VM 的静默忽略。
         goalManager.registerContinuation(this::continueRound);
@@ -407,6 +410,45 @@ public class CodeHomePageViewModel extends AbstractHomePageViewModel {
     public void registerLocalProject(String path, String name) throws java.io.IOException {
         ProjectInfo project = projectRegistry.registerLocal(path, name);
         currentProject.set(project);
+    }
+
+    /** 列出当前项目所有本地分支（controller 分支菜单用） */
+    public List<String> listBranches() {
+        ProjectInfo project = getCurrentProject();
+        if (project == null) {
+            return List.of();
+        }
+        return gitService.listBranches(java.nio.file.Path.of(project.path()));
+    }
+
+    /** 当前项目工作区是否干净（不干净时禁止切换分支） */
+    public boolean isWorkingTreeClean() {
+        ProjectInfo project = getCurrentProject();
+        if (project == null) {
+            return false;
+        }
+        return gitService.isWorkingTreeClean(java.nio.file.Path.of(project.path()));
+    }
+
+    /**
+     * 切换当前项目到指定分支。成功后刷新注册表与 currentProject 的分支信息。
+     *
+     * @param branch 目标分支名
+     * @return 是否切换成功
+     */
+    public boolean switchCurrentProjectBranch(String branch) {
+        ProjectInfo project = getCurrentProject();
+        if (project == null) {
+            return false;
+        }
+        if (!gitService.switchBranch(java.nio.file.Path.of(project.path()), branch)) {
+            return false;
+        }
+        ProjectInfo updated = projectRegistry.refreshBranch(project.id());
+        if (updated != null) {
+            currentProject.set(updated);
+        }
+        return true;
     }
 
     @Override
