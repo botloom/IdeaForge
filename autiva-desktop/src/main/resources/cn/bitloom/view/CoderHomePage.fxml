@@ -48,14 +48,14 @@
                     <Insets bottom="8"/>
                 </HBox.margin>
             </MenuButton>
-            <Button fx:id="branchDisplayButton" styleClass="home-page__branch-btn" prefHeight="37" visible="false" managed="false">
+            <MenuButton fx:id="branchDisplayButton" styleClass="home-page__branch-btn" prefHeight="37" visible="false" managed="false">
                 <graphic>
                     <SvgImageView fitWidth="16" fitHeight="16" svgPath="/cn/bitloom/images/git-branch.svg"/>
                 </graphic>
                 <HBox.margin>
                     <Insets bottom="8"/>
                 </HBox.margin>
-            </Button>
+            </MenuButton>
             <Button fx:id="canvasButton" styleClass="home-page__icon-btn" prefWidth="37" prefHeight="37">
                 <graphic>
                     <SvgImageView fitWidth="20" fitHeight="20" svgPath="/cn/bitloom/images/canvas.svg"/>

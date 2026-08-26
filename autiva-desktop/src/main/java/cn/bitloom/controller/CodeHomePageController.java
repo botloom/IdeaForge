@@ -38,7 +38,7 @@ public class CodeHomePageController extends AbstractHomePageController {
     @FXML
     private MenuButton projectSelectButton;
     @FXML
-    private Button branchDisplayButton;
+    private MenuButton branchDisplayButton;
 
     private final CodeHomePageViewModel viewModel;
 
@@ -187,6 +187,12 @@ public class CodeHomePageController extends AbstractHomePageController {
 
         this.setupProjectMenu();
         this.branchDisplayButton.setText("");
+        // 每次下拉显示前刷新分支菜单，确保反映最新分支状态
+        this.branchDisplayButton.showingProperty().addListener((obs, wasShowing, showing) -> {
+            if (showing) {
+                refreshBranchMenu(viewModel.getCurrentProject());
+            }
+        });
         this.viewModel.currentProjectProperty()
                 .addListener((obs, oldVal, newVal) -> {
                     refreshBranchDisplay(newVal);
@@ -318,62 +324,63 @@ public class CodeHomePageController extends AbstractHomePageController {
     }
 
     private void refreshBranchDisplay(ProjectInfo project) {
+        refreshBranchMenu(project);
+        refreshBranchTooltip(project);
         if (project == null || project.gitBranch() == null || project.gitBranch().isBlank()) {
             branchDisplayButton.setText("");
             branchDisplayButton.setDisable(true);
-            branchDisplayButton.setOnAction(null);
         } else {
             branchDisplayButton.setText(project.gitBranch());
             branchDisplayButton.setDisable(false);
-            branchDisplayButton.setOnAction(e -> openBranchMenu());
         }
     }
 
     /**
-     * 打开分支切换菜单：列出本地分支，当前分支高亮不可选，点击其它分支执行切换。
-     * 工作区不干净时禁止切换（仅提示）。
+     * 填充分支切换下拉菜单：列出本地分支，当前分支置灰不可选，点击其它分支执行切换。
+     * 每次下拉显示前调用，保证反映最新分支状态。
      */
-    private void openBranchMenu() {
-        ProjectInfo project = viewModel.getCurrentProject();
+    private void refreshBranchMenu(ProjectInfo project) {
+        branchDisplayButton.getItems().clear();
         if (project == null) {
             return;
         }
-        // 限制条件 2：工作区不干净不能切换分支
-        if (!viewModel.isWorkingTreeClean()) {
-            Store.warnMessage.set("工作区存在未提交改动，请先提交或暂存后再切换分支");
-            return;
-        }
-
-        javafx.scene.control.ContextMenu menu = new javafx.scene.control.ContextMenu();
-        menu.getStyleClass().add("external-open-menu");
         String current = project.gitBranch();
         List<String> branches = viewModel.listBranches();
         if (branches.isEmpty()) {
             javafx.scene.control.MenuItem empty = new javafx.scene.control.MenuItem("无可用分支");
             empty.setDisable(true);
-            menu.getItems().add(empty);
-        } else {
-            for (String branch : branches) {
-                javafx.scene.control.MenuItem item = new javafx.scene.control.MenuItem(branch);
-                if (branch.equals(current)) {
-                    item.setDisable(true);
-                } else {
-                    item.setOnAction(ev -> handleSwitchBranch(branch));
-                }
-                menu.getItems().add(item);
-            }
+            branchDisplayButton.getItems().add(empty);
+            return;
         }
+        for (String branch : branches) {
+            javafx.scene.control.MenuItem item = new javafx.scene.control.MenuItem(branch);
+            if (branch.equals(current)) {
+                item.setDisable(true);
+            } else {
+                item.setOnAction(ev -> handleSwitchBranch(branch));
+            }
+            branchDisplayButton.getItems().add(item);
+        }
+    }
 
-        javafx.geometry.Bounds bounds = branchDisplayButton.localToScreen(branchDisplayButton.getBoundsInLocal());
-        if (bounds != null) {
-            menu.show(branchDisplayButton, bounds.getMinX(), bounds.getMaxY());
+    /**
+     * 刷新分支按钮悬浮提示：工作区不干净时提示暂不能切换分支。
+     */
+    private void refreshBranchTooltip(ProjectInfo project) {
+        if (project != null && !viewModel.isWorkingTreeClean()) {
+            javafx.scene.control.Tooltip tip = new javafx.scene.control.Tooltip("工作区存在未提交改动，暂不能切换分支");
+            branchDisplayButton.setTooltip(tip);
         } else {
-            menu.show(branchDisplayButton, branchDisplayButton.getLayoutX(),
-                    branchDisplayButton.getLayoutY() + branchDisplayButton.getBoundsInLocal().getHeight());
+            branchDisplayButton.setTooltip(null);
         }
     }
 
     private void handleSwitchBranch(String branch) {
+        // 限制条件 2：工作区不干净不能切换分支
+        if (!viewModel.isWorkingTreeClean()) {
+            Store.warnMessage.set("工作区存在未提交改动，请先提交或暂存后再切换分支");
+            return;
+        }
         if (viewModel.switchCurrentProjectBranch(branch)) {
             log.info("已切换到分支: {}", branch);
         } else {
