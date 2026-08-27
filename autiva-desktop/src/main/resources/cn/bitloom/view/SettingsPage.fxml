@@ -14,7 +14,7 @@
 >
     <HBox styleClass="button-bar" VBox.vgrow="NEVER">
         <Region HBox.hgrow="ALWAYS"/>
-        <Button styleClass="dynamic-btn" text="保存" onAction="#onSave"/>
+        <Button styleClass="settings-page__btn-primary" text="保存" onAction="#onSave"/>
     </HBox>
     <ScrollPane fitToWidth="true" fitToHeight="true" hbarPolicy="NEVER" VBox.vgrow="ALWAYS"
                 styleClass="settings-page__scroll-pane" prefWidth="600" maxWidth="700">
@@ -27,10 +27,10 @@
                         <StackPane styleClass="settings-page__qr-stack">
                             <ImageView fx:id="weixinQrImageView" styleClass="settings-page__qr-image"/>
                             <VBox fx:id="weixinConnectedOverlay" styleClass="settings-page__qr-overlay" alignment="CENTER" visible="false">
-                                <Button fx:id="weixinRebindButton" text="重新加载" styleClass="settings-page__rebind-btn"/>
+                                <Button fx:id="weixinRebindButton" text="重新加载" styleClass="settings-page__btn-secondary"/>
                             </VBox>
                             <VBox fx:id="weixinExpiredOverlay" styleClass="settings-page__qr-overlay" alignment="CENTER" visible="false">
-                                <Button fx:id="weixinRefreshButton" text="重新加载" styleClass="settings-page__rebind-btn"/>
+                                <Button fx:id="weixinRefreshButton" text="重新加载" styleClass="settings-page__btn-secondary"/>
                             </VBox>
                         </StackPane>
                         <Label fx:id="weixinQrHintLabel" text="扫码即可绑定微信" styleClass="settings-page__qr-hint" wrapText="true"/>
@@ -51,13 +51,14 @@
             </VBox>
 
             <VBox>
-                <HBox styleClass="settings-page__section-head" alignment="CENTER_LEFT">
-                    <Label text="模型配置" styleClass="settings-page__section-label"/>
-                    <Region HBox.hgrow="ALWAYS"/>
-                    <Button fx:id="addModelButton" text="添加模型" styleClass="dynamic-btn"
-                            onAction="#onAddModel"/>
-                </HBox>
-                <VBox fx:id="modelListContainer" styleClass="settings-page__card"/>
+                <Label text="模型配置" styleClass="settings-page__section-label"/>
+                <VBox styleClass="settings-page__card">
+                    <HBox styleClass="settings-page__models-head" alignment="CENTER_LEFT">
+                        <Button fx:id="addModelButton" text="添加模型" styleClass="settings-page__btn-primary"
+                                onAction="#onAddModel"/>
+                    </HBox>
+                    <VBox fx:id="modelListContainer" styleClass="settings-page__models-list"/>
+                </VBox>
             </VBox>
 
             <Region VBox.vgrow="ALWAYS" styleClass="settings-page__spacer"/>

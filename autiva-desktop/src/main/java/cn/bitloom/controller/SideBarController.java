@@ -6,6 +6,7 @@ import cn.bitloom.agentic.session.EventFilter;
 import cn.bitloom.agentic.session.FileSystemSessionManager;
 import cn.bitloom.agentic.session.Session;
 import cn.bitloom.constant.AgentMode;
+import cn.bitloom.constant.AppConstants;
 import cn.bitloom.holder.PageHolder;
 import cn.bitloom.node.project.FileEntry;
 import cn.bitloom.node.project.FileTreeCell;
@@ -43,10 +44,13 @@ import lombok.Setter;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
+import java.io.IOException;
 import java.net.URL;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.*;
+import java.util.stream.Stream;
 
 @Slf4j
 @Component
@@ -413,10 +417,36 @@ public class SideBarController implements Initializable, PageHolder {
             }
         });
 
-        header.getChildren().addAll(folderIcon, nameLabel, spacer, treeBtn, newChatBtn);
+        // 清除按钮：删除该项目全部会话与项目记忆（默认隐藏，悬浮显示）
+        Button clearBtn = new Button();
+        clearBtn.getStyleClass().add("sidebar__history-delete-btn");
+        SvgImageView clearIcon = new SvgImageView();
+        clearIcon.setFitWidth(14);
+        clearIcon.setFitHeight(14);
+        clearIcon.setSvgPath("/cn/bitloom/images/trash.svg");
+        clearBtn.setGraphic(clearIcon);
+        clearBtn.setVisible(false);
+        clearBtn.setOnAction(e -> {
+            e.consume();
+            Window owner = sideBar != null && sideBar.getScene() != null
+                    ? sideBar.getScene().getWindow() : null;
+            windowManager.showDialog("cn/bitloom/view/AgentConfirmDialog.fxml", owner, controller -> {
+                if (controller instanceof AgentConfirmDialogController confirmController) {
+                    confirmController.init(
+                            "将删除项目「" + project.name() + "」的全部会话与项目记忆，且不可恢复。确定清除？",
+                            confirmed -> {
+                                if (confirmed) {
+                                    clearProjectData(project, projectSessions);
+                                }
+                            });
+                }
+            });
+        });
 
-        header.setOnMouseEntered(e -> { newChatBtn.setVisible(true); treeBtn.setVisible(true); });
-        header.setOnMouseExited(e -> { newChatBtn.setVisible(false); treeBtn.setVisible(false); });
+        header.getChildren().addAll(folderIcon, nameLabel, spacer, clearBtn, treeBtn, newChatBtn);
+
+        header.setOnMouseEntered(e -> { newChatBtn.setVisible(true); treeBtn.setVisible(true); clearBtn.setVisible(true); });
+        header.setOnMouseExited(e -> { newChatBtn.setVisible(false); treeBtn.setVisible(false); clearBtn.setVisible(false); });
 
         // session 列表容器（默认折叠）；以下情况默认展开：
         // 1. 含当前活跃会话的项目；2. 新建对话时当前 coder 项目（currentProject）所属卡片保持展开
@@ -437,7 +467,8 @@ public class SideBarController implements Initializable, PageHolder {
         // 点击项目名展开/折叠（按钮点击不触发）
         header.setOnMouseClicked(e -> {
             if (e.getTarget() == newChatBtn || e.getTarget() == newChatIcon
-                    || e.getTarget() == treeBtn || e.getTarget() == treeIcon) {
+                    || e.getTarget() == treeBtn || e.getTarget() == treeIcon
+                    || e.getTarget() == clearBtn || e.getTarget() == clearIcon) {
                 return;
             }
             boolean expanded = sessionList.isVisible();
@@ -447,6 +478,51 @@ public class SideBarController implements Initializable, PageHolder {
 
         card.getChildren().addAll(header, sessionList);
         return card;
+    }
+
+    /**
+     * 清除项目：从项目注册表移除、逐个删除会话目录、递归删除项目记忆目录；
+     * 若该项目是当前 coder 项目则回退到未选择项目状态；
+     * 若当前活跃会话属于该项目则切换回初始态；最后刷新历史列表。
+     */
+    private void clearProjectData(ProjectInfo project, List<Session> projectSessions) {
+        projectRegistry.removeProject(project.id());
+
+        for (Session session : projectSessions) {
+            fileSystemSessionManager.remove(session.id());
+        }
+
+        Path memoryDir = AppConstants.Memory.projectMemoryDir(project.name());
+        if (Files.exists(memoryDir)) {
+            try (Stream<Path> walk = Files.walk(memoryDir)) {
+                walk.sorted(Comparator.reverseOrder()).forEach(path -> {
+                    try {
+                        Files.delete(path);
+                    } catch (IOException ex) {
+                        log.warn("删除项目记忆文件失败: {}", path, ex);
+                    }
+                });
+            } catch (IOException ex) {
+                log.error("删除项目记忆失败: {}", memoryDir, ex);
+            }
+        }
+
+        if (isCurrentCoderProject(project)) {
+            AbstractHomePageViewModel vm = currentViewModel();
+            if (vm instanceof CodeHomePageViewModel coderVm) {
+                coderVm.setCurrentProject(null);
+            }
+        }
+
+        String currentId = Store.currentSessionId.get();
+        boolean containsCurrent = projectSessions.stream().anyMatch(s -> s.id().equals(currentId));
+        if (containsCurrent) {
+            // 清除的是当前活跃会话所属项目，切换到初始态
+            AbstractHomePageViewModel vm = currentViewModel();
+            if (vm != null) vm.createNewSession();
+            resetChatUI();
+        }
+        refreshHistoryList();
     }
 
     /**

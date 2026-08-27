@@ -3,6 +3,7 @@ package cn.bitloom.controller;
 import cn.bitloom.agentic.model.ModelConfig;
 import cn.bitloom.bridge.wechat.WechatILinkClient;
 import cn.bitloom.holder.DialogHolder;
+import cn.bitloom.node.svg.SvgImageView;
 import cn.bitloom.vm.SettingsPageViewModel;
 import cn.bitloom.window.WindowManager;
 import com.google.zxing.BarcodeFormat;
@@ -13,9 +14,9 @@ import javafx.application.Platform;
 import javafx.beans.value.ChangeListener;
 import javafx.fxml.FXML;
 import javafx.fxml.Initializable;
-import javafx.geometry.Insets;
 import javafx.geometry.Pos;
 import javafx.scene.control.Button;
+import javafx.scene.control.ContentDisplay;
 import javafx.scene.control.Label;
 import javafx.scene.control.PasswordField;
 import javafx.scene.control.TextField;
@@ -121,23 +122,27 @@ public class SettingsPageController implements Initializable, WindowManager.Stag
     // ===== 模型管理 =====
 
     /**
-     * 重建模型列表卡片：每个模型一行（名称+模型名，编辑/删除按钮）。
+     * 重建模型列表卡片：每个模型一行（名称+模型名，上移/下移/编辑/删除按钮），行间以分割线分隔。
      */
     private void refreshModelList() {
         modelListContainer.getChildren().clear();
         var models = viewModel.listModels();
         if (models.isEmpty()) {
-            Label empty = new Label("暂无模型，点击下方“添加模型”新建");
+            Label empty = new Label("暂无模型，点击上方“添加模型”新建");
             empty.getStyleClass().add("settings-page__row-subtitle");
             modelListContainer.getChildren().add(empty);
             return;
         }
-        for (ModelConfig config : models) {
-            modelListContainer.getChildren().add(buildModelRow(config));
+        for (int i = 0; i < models.size(); i++) {
+            HBox row = buildModelRow(models.get(i), i, models.size());
+            if (i > 0) {
+                row.getStyleClass().add("settings-page__model-row--divider");
+            }
+            modelListContainer.getChildren().add(row);
         }
     }
 
-    private HBox buildModelRow(ModelConfig config) {
+    private HBox buildModelRow(ModelConfig config, int index, int size) {
         VBox info = new VBox(2);
         Label name = new Label(config.name());
         name.getStyleClass().add("settings-page__row-title");
@@ -145,26 +150,52 @@ public class SettingsPageController implements Initializable, WindowManager.Stag
         detail.getStyleClass().add("settings-page__row-subtitle");
         info.getChildren().addAll(name, detail);
 
+        Button upBtn = buildMoveButton("/cn/bitloom/images/chevron-up.svg");
+        upBtn.setDisable(index == 0);
+        upBtn.setOnAction(e -> {
+            viewModel.moveModel(config.id(), -1);
+            refreshModelList();
+        });
+
+        Button downBtn = buildMoveButton("/cn/bitloom/images/chevron-down.svg");
+        downBtn.setDisable(index == size - 1);
+        downBtn.setOnAction(e -> {
+            viewModel.moveModel(config.id(), 1);
+            refreshModelList();
+        });
+
         Button editBtn = new Button("编辑");
-        editBtn.getStyleClass().add("dynamic-btn");
+        editBtn.getStyleClass().add("settings-page__btn-secondary");
         editBtn.setOnAction(e -> openModelDialog(config));
 
         Button deleteBtn = new Button("删除");
-        deleteBtn.getStyleClass().add("dynamic-btn");
+        deleteBtn.getStyleClass().add("settings-page__btn-danger");
         deleteBtn.setOnAction(e -> {
             viewModel.deleteModel(config.id());
             refreshModelList();
         });
 
-        HBox actions = new HBox(8, editBtn, deleteBtn);
+        HBox actions = new HBox(8, upBtn, downBtn, editBtn, deleteBtn);
         actions.setAlignment(Pos.CENTER_RIGHT);
 
         HBox row = new HBox(12, info, new Region(), actions);
         row.getStyleClass().add("settings-page__model-row");
         HBox.setHgrow(info, Priority.NEVER);
         HBox.setHgrow(row.getChildren().get(1), Priority.ALWAYS);
-        HBox.setMargin(info, new Insets(8, 0, 8, 0));
         return row;
+    }
+
+    /** 纯图标方形小按钮（上移/下移）。 */
+    private Button buildMoveButton(String svgPath) {
+        SvgImageView icon = new SvgImageView(svgPath);
+        icon.setStrokeColor("#0071e3");
+        icon.setFitWidth(14);
+        icon.setFitHeight(14);
+        Button btn = new Button();
+        btn.getStyleClass().addAll("settings-page__btn-secondary", "settings-page__icon-btn");
+        btn.setGraphic(icon);
+        btn.setContentDisplay(ContentDisplay.GRAPHIC_ONLY);
+        return btn;
     }
 
     @FXML

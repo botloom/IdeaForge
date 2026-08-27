@@ -7,7 +7,7 @@ import cn.bitloom.holder.PageHolder;
 import cn.bitloom.node.AutoResizeTextArea;
 import cn.bitloom.node.message.*;
 import cn.bitloom.node.tool.TaskCard;
-import cn.bitloom.node.tool.ToolCallCard;
+
 import cn.bitloom.store.Store;
 import cn.bitloom.vm.AbstractHomePageViewModel;
 import cn.bitloom.window.WindowManager;
@@ -175,8 +175,9 @@ public abstract class AbstractHomePageController implements Initializable, Butto
             this.sendButton.setManaged(showSend);
             this.stopButton.setVisible(streaming && !paused);
             this.stopButton.setManaged(streaming && !paused);
+            // 输出过程中锁定模型切换
+            this.refreshModelSelectDisabled();
         });
-
         Store.isPaused.addListener((obs, oldVal, newVal) -> {
             boolean streaming = Store.isStreaming.get();
             boolean paused = newVal != null && newVal;
@@ -225,6 +226,13 @@ public abstract class AbstractHomePageController implements Initializable, Butto
         });
 
         this.toolUIBridge.setOnNodeAdded(this::addChatNode);
+
+        // TodoWrite 结果统一路由到右侧编辑器面板的 Todo 视图（work/code 模式共用）
+        this.toolUIBridge.setOnShowTodos((sessionId, todosJson) -> {
+            if (indexController != null) {
+                indexController.showTodoInPanel(todosJson);
+            }
+        });
 
         this.getViewModel().getMessages().addListener((ListChangeListener<MessageCard>) change -> {
             while (change.next()) {
@@ -337,6 +345,11 @@ public abstract class AbstractHomePageController implements Initializable, Butto
         }
     }
 
+    /** 输出过程中禁用模型切换按钮 */
+    private void refreshModelSelectDisabled() {
+        this.modelSelectButton.setDisable(Store.isStreaming.get());
+    }
+
     /** 当前选中模型显示名；未命中配置时显示 id */
     private void refreshModelButtonText() {
         String id = Store.selectedModel.get();
@@ -429,11 +442,17 @@ public abstract class AbstractHomePageController implements Initializable, Butto
 
     /**
      * 为消息卡片组装行视图（仅 card + row 对齐，不再包外层 card wrapper）。
+     * AI 侧消息占满整个可用区域，无宽度限制；用户消息保留气泡宽度。
      */
     private HBox buildMessageRow(MessageCard card) {
-        card.maxWidthProperty().bind(
-                Bindings.max(100, chatScrollPane.widthProperty().subtract(32).multiply(0.75))
-        );
+        if (card.getMessageType() == MessageType.USER) {
+            card.maxWidthProperty().bind(
+                    Bindings.max(100, chatScrollPane.widthProperty().subtract(32).multiply(0.75))
+            );
+        } else {
+            card.maxWidthProperty().unbind();
+            card.setMaxWidth(Double.MAX_VALUE);
+        }
 
         if (card instanceof AssistantMessageCard assistantCard) {
             assistantCard.setOnContentChanged(c -> onCardContentChanged());
@@ -457,17 +476,20 @@ public abstract class AbstractHomePageController implements Initializable, Butto
 
         @Override
         public void updateItem(MessageCard card) {
+            container.getStyleClass().removeAll("chat-list-cell--user", "chat-list-cell--assistant");
             container.getChildren().clear();
             if (card == null) {
                 return;
             }
+            // AI 行无水平缩进占满区域；用户行保留水平留白（气泡与窗口边缘间距）
+            container.getStyleClass().add(
+                    card.getMessageType() == MessageType.USER ? "chat-list-cell--user" : "chat-list-cell--assistant");
             if (card instanceof NodeMessageCard nmc) {
                 Node node = nmc.getNode();
                 if (node instanceof Region region) {
-                    double factor = node instanceof ToolCallCard ? 0.6 : 0.85;
-                    region.maxWidthProperty().bind(
-                            Bindings.max(100, chatScrollPane.widthProperty().subtract(32).multiply(factor))
-                    );
+                    // AI 侧节点卡片（工具组等）占满整个可用区域，无宽度限制
+                    region.maxWidthProperty().unbind();
+                    region.setMaxWidth(Double.MAX_VALUE);
                 }
                 container.getChildren().add(node);
             } else {
@@ -488,10 +510,13 @@ public abstract class AbstractHomePageController implements Initializable, Butto
 
     /**
      * 切换 session 时重置编辑器面板卡片引用，确保只显示当前 active session 的产物。
-     * work 模式无编辑器面板，默认空实现；code 子类 override（如重置 goal 卡片）。
+     * 默认清理 Todo 视图；子类 override 追加模式专有清理（如 code 重置 goal 卡片）。
      */
     protected void clearEditorPanelCards() {
-        // work 模式无专有编辑器卡片
+        // 清理右侧编辑器面板的 Todo 视图，确保只显示当前 active session 的待办
+        if (indexController != null && indexController.getEditorPanelController() != null) {
+            indexController.getEditorPanelController().clearTodoView();
+        }
     }
 
     /**

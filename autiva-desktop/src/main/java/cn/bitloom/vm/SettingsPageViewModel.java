@@ -88,4 +88,13 @@ public class SettingsPageViewModel {
         modelFactory.invalidate();
         Store.selectedModel.set(configManager.getSelectedModelId());
     }
+
+    /** 上移/下移模型（负数上移、正数下移）；第一位即默认模型，选中项随之同步。 */
+    public void moveModel(String id, int offset) {
+        if (!configManager.moveModelConfig(id, offset)) {
+            return;
+        }
+        modelFactory.invalidate();
+        Store.selectedModel.set(configManager.getSelectedModelId());
+    }
 }

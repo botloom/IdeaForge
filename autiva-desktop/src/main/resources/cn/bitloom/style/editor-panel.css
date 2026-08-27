@@ -649,3 +649,36 @@
     -fx-font-size: 13px;
     -fx-font-family: "SF Pro Text", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
 }
+
+/* ===== Todo 视图（右侧编辑器面板）====
+   覆盖 TodoCard 复用的聊天卡片样式（黄色渐变背景 / 白底边框 / 阴影），
+   使其作为文件视图式的占满面板内容，符合 Apple 简洁风格。
+   注意：不要在此设置 -fx-max-width，控制器已将其宽度绑定到视图容器，
+   以阻断超长 item 文本把行撑出可视区。 */
+.editor-panel__todo-view.chat-message--todo,
+.editor-panel__todo-view.chat-message--tool,
+.editor-panel__todo-view.chat-message {
+    -fx-background-color: -autiva-bg;
+    -fx-background-radius: 0;
+    -fx-border-color: transparent;
+    -fx-border-width: 0;
+    -fx-border-radius: 0;
+    -fx-effect: null;
+    -fx-padding: 0;
+}
+
+/* Todo 表头：与文件视图 sub-tab-bar 一致的表头栏（左侧进度/标题，右侧关闭按钮） */
+.editor-panel__todo-view .chat-message__todo-header {
+    -fx-background-color: -autiva-bg-elevated;
+    -fx-padding: 4 8;
+    -fx-spacing: 10;
+    -fx-min-height: 40;
+    -fx-pref-height: 40;
+    -fx-border-width: 0 0 1 0;
+    -fx-border-color: transparent transparent rgba(0, 0, 0, 0.06) transparent;
+}
+
+/* Todo 内容区：表头下方留白（覆盖聊天卡片的 body 内边距） */
+.editor-panel__todo-view .chat-message__todo-body {
+    -fx-padding: 16 20;
+}

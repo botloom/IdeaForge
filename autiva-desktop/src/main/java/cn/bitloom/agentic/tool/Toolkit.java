@@ -102,7 +102,14 @@ public class Toolkit {
         // 3. 根据配置过滤
         List<ToolCallback> filtered = filterByConfig(callbacks, definition);
 
-        // 4. 按 agent 配置创建 TaskTool（如果该 agent 允许使用 Task 工具）
+        // 4. 子智能体不提供 TodoWrite：todo 统一由主智能体维护并展示在面板视图
+        if (definition.kind() == cn.bitloom.agentic.agent.AgentKind.SUBAGENT) {
+            filtered = filtered.stream()
+                    .filter(tc -> !"TodoWrite".equals(tc.getToolDefinition().name()))
+                    .toList();
+        }
+
+        // 5. 按 agent 配置创建 TaskTool（如果该 agent 允许使用 Task 工具）
         if (isTaskToolAllowed(definition)) {
             TaskTool taskTool = TaskTool.builder()
                     .taskRepository(taskRepository)

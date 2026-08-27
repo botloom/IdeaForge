@@ -473,6 +473,16 @@ public class IndexController implements Initializable {
     }
 
     /**
+     * 在编辑器面板显示/更新 Todo 视图（coder 模式 TodoWrite 工具回调时调用）。
+     */
+    public void showTodoInPanel(String todosJson) {
+        EditorPanelController editor = getEditorPanelController();
+        if (editor == null) return;
+        ensureEditorVisible();
+        editor.showTodoView(todosJson);
+    }
+
+    /**
      * 将选中文本以 tag 形式加入对话框输入框（编辑器面板 → 对话框联动）
      */
     public void addTextToChat(String text) {

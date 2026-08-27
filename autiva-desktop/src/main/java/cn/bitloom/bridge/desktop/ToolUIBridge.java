@@ -47,6 +47,13 @@ public class ToolUIBridge {
     private Consumer<Node> onShowPlanApproval;
 
     /**
+     * Todo 视图回调（coder 模式）：把 todoJson 路由到右侧编辑器面板 Todo 视图（sessionId, todosJson）。
+     * work 模式未注册时，showTodos 回落到聊天流 TodoCard。
+     */
+    @Setter
+    private BiConsumer<String, String> onShowTodos;
+
+    /**
      * 展示计划批准卡片（ExitPlanModeTool 提交计划后由 VM 调用）。
      */
     public void showPlanApproval(Node card) {
@@ -206,13 +213,19 @@ public class ToolUIBridge {
         Platform.runLater(() -> {
             try {
                 TaskCard taskCard = sessionId != null ? this.sessionTaskCards.get(sessionId) : null;
-                TodoCard card = new TodoCard(todosJson);
                 if (taskCard != null) {
                     // 子智能体场景：TodoCard 挂在 TaskCard 内
-                    taskCard.addTodoCard(card);
-                } else if (this.onNodeAdded != null) {
-                    // 主对话场景：每次 todo 更新都新建独立卡片（不复用上次的卡）
-                    this.onNodeAdded.accept(sessionId, card);
+                    taskCard.addTodoCard(new TodoCard(todosJson));
+                    return;
+                }
+                if (this.onShowTodos != null) {
+                    // 主对话场景（coder 模式）：路由到右侧编辑器面板 Todo 视图
+                    this.onShowTodos.accept(sessionId, todosJson);
+                    return;
+                }
+                if (this.onNodeAdded != null) {
+                    // 主对话场景（work 模式）：每次 todo 更新都新建独立卡片（不复用上次的卡）
+                    this.onNodeAdded.accept(sessionId, new TodoCard(todosJson));
                 }
             } catch (Exception e) {
                 log.error("Error showing todos", e);

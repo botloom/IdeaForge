@@ -153,7 +153,7 @@ public class AgentPageController implements Initializable, DialogHolder {
                 agentPage.getScene().getWindow(),
                 controller -> {
                     if (controller instanceof AgentConfirmDialogController confirmController) {
-                        confirmController.init("删除智能体",
+                        confirmController.init(
                                 "确定要删除智能体 \"" + agentId + "\" 吗？此操作不可撤销。",
                                 confirmed -> {
                                     if (confirmed) {

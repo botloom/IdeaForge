@@ -21,7 +21,7 @@
 
     <VBox fx:id="chatListContainer"
               visible="false" managed="false"
-              maxWidth="1000" prefWidth="600" minWidth="300"
+              maxWidth="1000" minWidth="300"
               VBox.vgrow="ALWAYS"
               styleClass="chat-list-view"
     />

@@ -8,7 +8,6 @@ import javafx.scene.Node;
 import javafx.scene.layout.Region;
 import javafx.scene.layout.VBox;
 import javafx.scene.text.Font;
-import javafx.scene.text.FontPosture;
 import javafx.scene.text.Text;
 import javafx.scene.text.TextFlow;
 import lombok.Getter;
@@ -19,34 +18,32 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.function.Consumer;
 
+/**
+ * AI 正文消息卡片：只承载回复正文。
+ * <p>
+ * 流式期间单 TextFlow 纯文本输出（节流合并同一 FX 脉冲的多次 chunk），
+ * 流式结束后整体替换为 Markdown 渲染结果。思考与工具调用由独立卡片承载
+ * （ReasoningCard / ToolCallCard），各自直接加入虚拟列表按事件顺序展示。
+ */
 @Getter
 @Slf4j
 public class AssistantMessageCard extends MessageCard {
 
     private static final String FONT_FAMILY = "\"SF Pro Text\", -apple-system, BlinkMacSystemFont, \"Segoe UI\", Roboto, sans-serif";
 
-    // JavaFX 属性（原 ChatMessage 的属性下沉到卡片）
     private final StringProperty content = new SimpleStringProperty("");
     private final ObjectProperty<String> finishReason = new SimpleObjectProperty<>(null);
     private final BooleanProperty streaming = new SimpleBooleanProperty(false);
-
-    // 思考内容（reasoning_content，DeepSeek 等模型思维链）
-    private final StringProperty reasoning = new SimpleStringProperty("");
-    // 流式累积器
-    private final StringBuilder accumulator = new StringBuilder();
-    private final StringBuilder reasoningAccumulator = new StringBuilder();
-    private boolean isStreamingActive = false;
-
-    @Setter
-    private Consumer<String> onContentChanged;
 
     // 流式期间复用的组件
     private TextFlow streamingContainer = null;
     private Text streamingText = null;
 
-    // 思考区域组件（Claude 式：斜体浅灰内联，无折叠无色块）
-    private TextFlow thinkingBody = null;
-    private Text thinkingText = null;
+    private final StringBuilder accumulator = new StringBuilder();
+    private boolean isStreamingActive = false;
+
+    @Setter
+    private Consumer<String> onContentChanged;
 
     /** 节流标志：同一 FX 脉冲内多次 chunk 只调度一次 flush，避免逐 chunk 触发 setText+reflow */
     private boolean textUpdateScheduled = false;
@@ -55,22 +52,13 @@ public class AssistantMessageCard extends MessageCard {
         this.getStyleClass().add("chat-message");
         this.getStyleClass().add("chat-message--assistant");
 
-        // 预初始化流式容器，确保 card 有非零 prefHeight。
+        // 预初始化流式容器，确保 card 有非零 prefHeight
         initStreamingContainer();
-
-        // contentProperty 监听：流式期间由 flushStreamingText 直接管理，不经过此 listener。
-        // 仅用于非流式场景（如历史消息通过 setContent 设置后触发渲染）。
-        content.addListener((obs, oldVal, newVal) -> {
-            if (!isStreaming() && newVal != null && !newVal.isBlank()) {
-                renderMarkdown(newVal);
-            }
-        });
 
         // 监听 streamingProperty，流式结束时触发 Markdown 渲染
         streaming.addListener((obs, oldVal, newVal) -> {
             if (!newVal && getContent() != null) {
                 renderMarkdown(getContent());
-                // MD 渲染后卡片高度可能变化，通知外部重排，避免与下方卡片重叠
                 if (onContentChanged != null) {
                     onContentChanged.accept(getContent());
                 }
@@ -79,8 +67,8 @@ public class AssistantMessageCard extends MessageCard {
     }
 
     /**
-     * 带初始内容构造（用于历史消息）
-     * content.set 触发 contentProperty listener 自动渲染 Markdown。
+     * 带初始内容构造（用于历史消息 / 一次性输出）。
+     * content.set 触发 listener 自动渲染 Markdown。
      */
     public AssistantMessageCard(String initialContent, String finishReason) {
         this();
@@ -88,22 +76,9 @@ public class AssistantMessageCard extends MessageCard {
             this.finishReason.set(finishReason);
         }
         if (initialContent != null) {
-            this.content.set(initialContent); // listener 检测到 !isStreaming() → renderMarkdown + updateActionBarVisibility
+            this.content.set(initialContent); // listener 检测到 !isStreaming() → renderMarkdown
         }
     }
-
-    /**
-     * 带初始内容与思考内容构造（用于历史消息恢复）。
-     */
-    public AssistantMessageCard(String initialContent, String initialReasoning, String finishReason) {
-        this(initialContent, finishReason);
-        if (initialReasoning != null) {
-            reasoningAccumulator.append(initialReasoning);
-            reasoning.set(initialReasoning);
-        }
-    }
-
-    // ===== MessageCard 接口实现 =====
 
     @Override
     public MessageType getMessageType() {
@@ -115,54 +90,8 @@ public class AssistantMessageCard extends MessageCard {
         return content.get();
     }
 
-    // ===== 属性访问器 =====
-
     public StringProperty contentProperty() {
         return content;
-    }
-
-    public void setContent(String value) {
-        content.set(value);
-    }
-
-    // ===== 思考内容（reasoning） =====
-
-    public StringProperty reasoningProperty() {
-        return reasoning;
-    }
-
-    public String getReasoning() {
-        return reasoning.get();
-    }
-
-    public void setReasoning(String value) {
-        reasoning.set(value);
-    }
-
-    public boolean hasReasoning() {
-        String r = reasoning.get();
-        return r != null && !r.isBlank();
-    }
-
-    /**
-     * 更新流式思考内容（覆盖语义：Spring AI 2.0.1+ 的流式 reasoningContent 为累积值，
-     * 每个 chunk 携带从头到当前的完整思考文本，直接替换而非追加）。
-     */
-    public void updateReasoning(String fullText) {
-        String text = fullText != null ? fullText : "";
-        reasoningAccumulator.setLength(0);
-        reasoningAccumulator.append(text);
-        reasoning.set(text);
-        if (thinkingBody == null && !text.isBlank()) {
-            // 首次出现思考内容：把思考区域插入到 children 最前
-            insertThinkingSection();
-        }
-        if (thinkingText != null) {
-            thinkingText.setText(text);
-        }
-        if (onContentChanged != null) {
-            onContentChanged.accept(getContent());
-        }
     }
 
     public ObjectProperty<String> finishReasonProperty() {
@@ -171,10 +100,6 @@ public class AssistantMessageCard extends MessageCard {
 
     public String getFinishReason() {
         return finishReason.get();
-    }
-
-    public void setFinishReason(String value) {
-        finishReason.set(value);
     }
 
     public BooleanProperty streamingProperty() {
@@ -189,11 +114,8 @@ public class AssistantMessageCard extends MessageCard {
         streaming.set(value);
     }
 
-    // ===== 流式累积方法（原 ChatMessage 的逻辑下沉） =====
-
     /**
      * 累积流式内容。自动设置 streaming=true，调度节流式 UI 更新。
-     * 不直接调用 content.set / setText，而是通过 scheduleFlush 合并同一 FX 脉冲内的多次 chunk。
      */
     public void appendContent(String chunk) {
         if (!isStreamingActive) {
@@ -206,46 +128,45 @@ public class AssistantMessageCard extends MessageCard {
 
     /**
      * 结束流式输出。取消 pending flush，设置 content，触发 Markdown 渲染。
-     * 如果累积内容为空，将 content 设置为 null（供外部判断是否移除）。
+     * 累积内容为空时 content 置 null（供外部判断是否移除空卡）。
      */
     public void complete(String reason) {
-        // 取消 pending flush — complete() 将通过 streaming listener 触发最终渲染
         textUpdateScheduled = false;
         isStreamingActive = false;
-        // 设置 content 供 isValid 判断使用
         content.set(accumulator.isEmpty() ? null : accumulator.toString());
         finishReason.set(reason);
         streaming.set(false); // 触发 streaming listener → renderMarkdown
     }
 
-    /**
-     * 判断消息内容是否有效（非空）。含思考内容即视为有效（保留卡片）。
-     */
+    /** 判断正文是否为空（供外部决定是否移除空卡）。 */
     public boolean isValid() {
         String c = content.get();
-        return (c == null || c.isBlank()) && !hasReasoning();
+        return c == null || c.isBlank();
     }
 
-    // ===== 渲染逻辑 =====
-
     /**
-     * 调度节流式 UI 更新：同一 FX 脉冲内多次 chunk 只执行一次 flush。
-     * appendContent 在 FX 线程调用（由 ViewModel 的 Platform.runLater 保证），
-     * 此处再提交一个 runLater，会在当前所有 runLater 之后执行，
-     * 从而合并同一脉冲内的多个 chunk 为一次 setText。
+     * 重开已完成卡片继续流式（相邻正文卡片合并场景）：
+     * 恢复流式 TextFlow 容器，累计内容从原 content 续接（两段文本间以空行分隔），
+     * 后续 appendContent/complete 复用现有流式逻辑，complete 时整体重新渲染 Markdown。
      */
+    public void reopen() {
+        String previous = getContent() == null ? "" : getContent();
+        accumulator.setLength(0);
+        accumulator.append(previous);
+        if (!previous.isBlank()) {
+            accumulator.append("\n\n");
+        }
+        isStreamingActive = true;
+        streaming.set(true);
+        initStreamingContainer();
+    }
+
     private void scheduleFlush() {
         if (textUpdateScheduled) return;
         textUpdateScheduled = true;
         Platform.runLater(this::flushStreamingText);
     }
 
-    /**
-     * 执行节流式 UI 更新：更新 streamingText、请求布局、通知外部重排。
-     * 若流式已结束（complete 后残留的 pending flush），直接跳过。
-     * 流式期间保持纯文本输出（无 Markdown 重建，避免逐 chunk 闪烁），
-     * 结构完整的 Markdown 在流式结束时由 renderMarkdown 统一渲染。
-     */
     private void flushStreamingText() {
         if (!isStreamingActive) {
             textUpdateScheduled = false;
@@ -262,10 +183,6 @@ public class AssistantMessageCard extends MessageCard {
         }
     }
 
-    /**
-     * 预初始化流式容器（空内容），确保 card 拥有非零 prefHeight。
-     * 在构造函数中调用，确保 card 有初始高度。
-     */
     private void initStreamingContainer() {
         streamingContainer = new TextFlow();
         streamingContainer.getStyleClass().add("md-paragraph");
@@ -280,56 +197,12 @@ public class AssistantMessageCard extends MessageCard {
         this.getStyleClass().add("chat-message--streaming");
     }
 
-    /**
-     * 构建思考区域并插入到 children 最前。
-     * Claude 式：斜体浅灰小字标题「思考」+ 斜体浅灰思考内容，默认展开、无折叠无色块。
-     * 首次调用负责构建并缓存节点；后续调用负责把已缓存节点重新挂载（renderMarkdown 清空后）。
-     */
-    private void insertThinkingSection() {
-        if (thinkingBody == null) {
-            Text thinkingHeader = new Text("思考");
-            thinkingHeader.getStyleClass().add("thinking-header");
-            thinkingHeader.setFont(Font.font(FONT_FAMILY, FontPosture.ITALIC, 12));
-
-            thinkingBody = new TextFlow();
-            thinkingBody.getStyleClass().add("thinking-body");
-            thinkingBody.setMaxWidth(Double.MAX_VALUE);
-
-            thinkingText = new Text(reasoningAccumulator.toString());
-            thinkingText.getStyleClass().add("thinking-text");
-            thinkingText.setFont(Font.font(FONT_FAMILY, FontPosture.ITALIC, 14));
-            thinkingBody.getChildren().add(thinkingText);
-
-            VBox section = new VBox(4);
-            section.getStyleClass().add("thinking-section");
-            section.getChildren().addAll(thinkingHeader, thinkingBody);
-            section.setMaxWidth(Double.MAX_VALUE);
-        }
-
-        // 确保思考区位于 children 最前：未挂载（首次 / renderMarkdown clear 后）则挂载，
-        // 已挂载但不在最前则移动。
-        javafx.scene.Node section = thinkingBody.getParent();
-        int idx = this.getChildren().indexOf(section);
-        if (idx != 0) {
-            if (idx > 0) {
-                this.getChildren().remove(section);
-            }
-            this.getChildren().add(0, section);
-        }
-    }
-
     private void renderMarkdown(String content) {
         this.getChildren().clear();
         this.getStyleClass().remove("chat-message--streaming");
 
         streamingContainer = null;
         streamingText = null;
-
-        boolean hasReasoning = hasReasoning();
-        // 思考区域：rendered 前确保思考折叠区已挂载（含首次构建与 clear 后重新挂载）
-        if (hasReasoning) {
-            insertThinkingSection();
-        }
 
         if (content == null || content.isBlank()) {
             return;

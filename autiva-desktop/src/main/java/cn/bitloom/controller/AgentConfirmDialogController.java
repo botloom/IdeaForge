@@ -20,8 +20,6 @@ import java.util.ResourceBundle;
 public class AgentConfirmDialogController implements WindowManager.StageAware, DialogHolder, Initializable {
 
     @FXML
-    private Label headerLabel;
-    @FXML
     private Label messageLabel;
     @FXML
     private Button cancelButton;
@@ -54,14 +52,9 @@ public class AgentConfirmDialogController implements WindowManager.StageAware, D
         confirmButton.setOnAction(e -> confirm());
     }
 
-    public void init(String title, String message, Consumer<Boolean> onResult) {
-        headerLabel.setText(title);
+    public void init(String message, Consumer<Boolean> onResult) {
         messageLabel.setText(message);
         this.onResult = onResult;
-
-        if (stage != null) {
-            stage.setTitle(title);
-        }
     }
 
     private void confirm() {

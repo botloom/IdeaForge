@@ -31,7 +31,7 @@
         <TextField fx:id="completionsPathField" styleClass="settings-page__path-field" promptText="/v1/chat/completions"/>
     </VBox>
     <HBox spacing="8" alignment="CENTER_RIGHT" styleClass="model-edit-dialog__actions">
-        <Button text="取消" styleClass="settings-page__secondary-btn" onAction="#onCancel"/>
-        <Button text="保存" styleClass="settings-page__login-btn" onAction="#onConfirm"/>
+        <Button text="取消" styleClass="settings-page__btn-secondary" onAction="#onCancel"/>
+        <Button text="保存" styleClass="settings-page__btn-primary" onAction="#onConfirm"/>
     </HBox>
 </VBox>

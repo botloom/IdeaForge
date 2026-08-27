@@ -16,6 +16,7 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.nio.file.Files;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -220,6 +221,27 @@ public class ConfigManager {
             selectedModelId = modelList.isEmpty() ? "" : str(modelList.get(0).get("id"));
         }
         save();
+    }
+
+    /**
+     * 上移/下移模型配置（负数上移、正数下移）；越界或 id 不存在时返回 false。
+     * 列表第一位即默认模型，排序后选中项跟随新的第一位。
+     */
+    public boolean moveModelConfig(String id, int offset) {
+        for (int i = 0; i < modelList.size(); i++) {
+            if (!id.equals(str(modelList.get(i).get("id")))) {
+                continue;
+            }
+            int target = i + offset;
+            if (target < 0 || target >= modelList.size()) {
+                return false;
+            }
+            Collections.swap(modelList, i, target);
+            selectedModelId = str(modelList.get(0).get("id"));
+            save();
+            return true;
+        }
+        return false;
     }
 
     /**

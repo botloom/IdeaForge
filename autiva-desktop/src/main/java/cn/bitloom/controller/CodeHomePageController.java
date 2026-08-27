@@ -278,6 +278,8 @@ public class CodeHomePageController extends AbstractHomePageController {
 
     private void setupProjectMenu() {
         refreshProjectMenu();
+        // 每次展开菜单前重建项目列表：注册表可能被侧边栏"清除项目"移除
+        projectSelectButton.setOnShowing(e -> refreshProjectMenu());
         refreshProjectMenuText(viewModel.getCurrentProject());
     }
 
@@ -513,11 +515,12 @@ public class CodeHomePageController extends AbstractHomePageController {
     }
 
     /**
-     * 切换 session 时重置编辑器面板卡片：code 模式重置 goal 卡片引用，
+     * 切换 session 时重置编辑器面板卡片：code 模式额外重置 goal 卡片引用，
      * 确保只显示当前 active session 的目标闭环产物。
      */
     @Override
     protected void clearEditorPanelCards() {
+        super.clearEditorPanelCards();
         toolUIBridge.resetGoalCard();
     }
 

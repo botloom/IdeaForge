@@ -21,7 +21,6 @@ import cn.bitloom.agentic.tool.session.ConversationSearchTool;
 import cn.bitloom.agentic.tool.session.CrossSessionSearchTool;
 import cn.bitloom.agentic.hook.IAgentHook;
 import cn.bitloom.agentic.hook.PermissionHook;
-import cn.bitloom.agentic.hook.TodoReminderHook;
 import cn.bitloom.agentic.hook.ToolCallBudgetHook;
 import cn.bitloom.agentic.hook.ToolResultOffloadHook;
 import cn.bitloom.agentic.permission.strategy.ToolApprovalStrategy;
@@ -170,14 +169,14 @@ public class SubAgentFactory {
     }
 
     /**
-     * 基础 Hook 集：预算保护 / 权限审批 / Todo 提醒 / 工具结果落盘。
+     * 基础 Hook 集：预算保护 / 权限审批 / 工具结果落盘。
      * 每次构建 Agent 都 new 新实例（内部持有 per-session 可变状态，避免多智能体共享串扰）。
+     * 注意：不挂 TodoReminderHook——子智能体未提供 TodoWrite 工具，提醒反而误导。
      */
     private List<IAgentHook> buildBaseHooks() {
         List<IAgentHook> hooks = new ArrayList<>();
         hooks.add(new ToolCallBudgetHook(configManager.getMaxToolCalls()));
         hooks.add(new PermissionHook(approvalStrategies));
-        hooks.add(new TodoReminderHook());
         hooks.add(new ToolResultOffloadHook());
         return hooks;
     }

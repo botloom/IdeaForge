@@ -31,7 +31,7 @@ import java.util.function.Consumer;
 @Primary
 public class EditorPanelController implements Initializable {
 
-    public enum ViewType { FILE }
+    public enum ViewType { FILE, TODO }
 
     @FXML
     @Getter
@@ -224,6 +224,48 @@ public class EditorPanelController implements Initializable {
 
     public boolean isVisible() {
         return editorPanel.isVisible();
+    }
+
+    // ===== Todo 视图（单实例复用，work/code 模式共用） =====
+
+    /**
+     * 展示/更新 Todo 视图：首次调用创建 TODO tab 并选中，后续更新复用同一 tab 原地刷新。
+     */
+    public void showTodoView(String todosJson) {
+        show();
+        EditorTab todoTab = findTabByType(ViewType.TODO);
+        if (todoTab == null) {
+            cn.bitloom.node.tool.TodoCard card = new cn.bitloom.node.tool.TodoCard(todosJson, this::clearTodoView);
+            card.getStyleClass().add("editor-panel__todo-view");
+
+            final EditorTab newTab = createTab(ViewType.TODO, card);
+            addTab(newTab);
+            selectTab(newTab);
+            // 宽度约束绑定到视图容器：阻断超长 item 文本把卡片/行撑出可视区，
+            // 使长文本正常换行，而 activeForm 与状态标签始终可见
+            card.maxWidthProperty().bind(viewContainer.widthProperty());
+        } else {
+            ((cn.bitloom.node.tool.TodoCard) todoTab.content).update(todosJson);
+            selectTab(todoTab);
+        }
+    }
+
+    /**
+     * 关闭 Todo 视图（切换 session 时清理，确保只显示当前 active session 的待办）。
+     */
+    public void clearTodoView() {
+        EditorTab todoTab = findTabByType(ViewType.TODO);
+        if (todoTab != null) {
+            closeTodoTab(todoTab);
+        }
+    }
+
+    private void closeTodoTab(EditorTab tab) {
+        if (tab.content instanceof cn.bitloom.node.tool.TodoCard card
+                && card.maxWidthProperty().isBound()) {
+            card.maxWidthProperty().unbind();
+        }
+        closeTab(tab);
     }
 
     // ===== coder 专有方法（通用基类空实现，coder 模式 override） =====
