@@ -133,12 +133,12 @@ public abstract class AbstractHomePageViewModel {
         Disposable subscription;
         /** 当前流式正文卡片 */
         AssistantMessageCard currentAssistantCard = null;
-        /** 当前一段连续思考的折叠卡（工具轮次后的新思考另起一张，按时序穿插） */
+        /** 当前「思考过程」折叠容器（收容连续思考段与思考引发的工具组） */
+        ReasoningProcessCard currentReasoningProcess = null;
+        /** 容器内当前一段连续思考的子块（工具轮次后的新思考另起一块） */
         ReasoningCard currentReasoningCard = null;
         /** 当前正在累积的工具调用组卡片（同一轮 AI 话语后的连续工具聚合为一组） */
         cn.bitloom.node.tool.ToolCallCard currentToolGroup = null;
-        /** 工具组的列表包装（NodeMessageCard），作为思考卡插入位置锚点 */
-        NodeMessageCard currentToolGroupWrapper = null;
         /** 新一条 AI 话语开始后，工具调用应新起一组 */
         boolean needNewToolGroup = true;
         /** 当前工具组内尚未完成（COMPLETED/FAILED）的工具调用 id */
@@ -253,9 +253,9 @@ public abstract class AbstractHomePageViewModel {
     }
 
     public void prepareHistoricalMessages() {
-        // 从 events.jsonl 同步加载历史事件，直接渲染为完成态卡片。
-        // 只处理 USER / ASSISTANT 消息，跳过 TOOL 消息（历史工具不显示）。
-        // 加载期间 historyLoading=true，UI 据此禁用发送并显示加载提示。
+        // 从 events.jsonl 同步加载历史事件，渲染为完成态卡片。
+        // 统一管线：与实时流共用 processMessageEvent 状态机（fromHistory=true），
+        // 消除历史加载的第二套合并语义导致的实时/历史显示不一致。
         List<AbstractEvent> events = sessionManager.getEvents(this.session.id());
         if (events.isEmpty()) {
             return;
@@ -273,41 +273,20 @@ public abstract class AbstractHomePageViewModel {
                 if (!(event instanceof MessageEvent me)) {
                     continue;
                 }
-                // 跳过合成事件（压缩产生的 shadow-prompt 用户消息 + 摘要助手消息）：
-                // 它们是框架生成的伪消息，不是用户真实对话。归档的旧历史中可能也残留
-                // 多次压缩产生的旧合成消息，因此这里不区分 archived —— 只要 synthetic 一律跳过。
-                // 压缩的提示由 CompactionEvent → CompactionCard 负责渲染。
-                if (me.isSynthetic()) {
+                // 压缩产生的影子轮次（shadow-prompt 用户消息 + 摘要助手消息）：
+                // 框架伪消息，不渲染。压缩的提示由 CompactionEvent → CompactionCard 负责。
+                // 其它 synthetic 事件（Goal 续轮 / 后台任务通知等系统注入）是真实发生的
+                // 轮次边界：渲染为 NotificationCard，防止其两侧的 assistant 消息被错误合并
+                // （实时流同样以 NotificationCard 渲染并隔断，两侧行为一致）。
+                if (me.isSynthetic() && me.isCompactionShadow()) {
                     continue;
                 }
-                if (me.isUserMessage()) {
-                    UserMessageCard card = new UserMessageCard(me.getText());
-                    messages.add(card);
-                    if (currentState != null) currentState.savedMessages.add(card);
-                } else if (me.isAssistantMessage()) {
-                    String text = me.getText();
-                    String reasoning = me.getReasoningContent();
-                    if (reasoning != null && !reasoning.isBlank()) {
-                        // 思考折叠块按事件时序穿插展示；相邻同类合并（上一张也是思考卡时追加为新段）
-                        ReasoningCard reasoningCard = obtainReasoningCard(currentState, true);
-                        reasoningCard.updateReasoning(reasoning);
-                    }
-                    if (text != null && !text.isBlank()) {
-                        // 相邻正文卡合并：上一张也是正文卡时重开续写
-                        AssistantMessageCard card = obtainAssistantCard(currentState, true);
-                        card.appendContent(text);
-                        card.complete("STOP");
-                    }
-                    // 历史工具调用：重建为已完成折叠态的工具组卡片；相邻工具组合并
-                    if (me.hasToolCalls()) {
-                        ToolCallCard group = obtainToolGroup(currentState, true);
-                        for (var tc : me.getToolCalls()) {
-                            group.addToolCall(tc.name(), tc.arguments());
-                        }
-                        group.collapseNow();
-                    }
+                // TOOL 消息跳过：工具调用的历史重建由 assistant 消息的 toolCalls 字段
+                // 在 processAssistantEvent 的历史分支完成
+                if (me.isToolResponse()) {
+                    continue;
                 }
-                // TOOL 消息跳过：历史工具调用不显示
+                processMessageEvent(me, currentState, true, true);
             }
         } finally {
             historyLoading.set(false);
@@ -717,7 +696,7 @@ public abstract class AbstractHomePageViewModel {
         boolean isActive = (state == currentState);
 
         if (event instanceof MessageEvent messageEvent) {
-            processMessageEvent(messageEvent, state, isActive);
+            processMessageEvent(messageEvent, state, isActive, false);
         } else if (event instanceof CompactionEvent ce) {
             CompactionCard card = new CompactionCard(ce.getArchivedCount(), ce.getActiveCount());
             if (isActive) messages.add(card);
@@ -751,10 +730,14 @@ public abstract class AbstractHomePageViewModel {
 
     /** 工具调用开始：普通工具聚合到工具组卡片；Task/TodoWrite 独立渲染前闭合正文卡片。 */
     private void handleToolCallCreated(UICardEvent event, SessionRuntimeState state, boolean isActive, String callId) {
-        // 任何工具执行前先闭合当前流式正文，保证工具结束后的新 AI 文本新起一个冒泡
+        // 任何工具执行前先闭合当前流式正文/思考，保证工具结束后的新 AI 文本新起一个冒泡
         finishStreamingText(state, isActive);
         if (TASK_TOOL_NAME.equals(event.getToolName()) || TODO_TOOL_NAME.equals(event.getToolName())) {
             // Task 由 ToolUIBridge 单独渲染 TaskCard、TodoWrite 渲染 TodoCard，不参与工具组
+            return;
+        }
+        if (!isCardedTool(event.getToolName())) {
+            // 非展示工具（MemoryView/Grep 等）：仅借 CREATED 事件分隔思考段，不创建工具组卡
             return;
         }
         if (callId != null) {
@@ -763,8 +746,10 @@ public abstract class AbstractHomePageViewModel {
 
         ToolCallCard group = state.currentToolGroup;
         if (group == null || state.needNewToolGroup) {
-            // 新起一组（相邻同类合并：上一张卡也是工具组时复用该组）
+            // 新起一组（相邻同类合并：上一张卡也是工具组时复用该组）；新组开始默认展开，
+            // 此后同组内新工具调用不再强制展开，尊重用户手动折叠
             group = obtainToolGroup(state, isActive);
+            group.expandNow();
         }
         group.addToolCall(event.getToolName(), event.getCardJson());
         group.markRunning();
@@ -775,6 +760,9 @@ public abstract class AbstractHomePageViewModel {
         if (TASK_TOOL_NAME.equals(toolName) || TODO_TOOL_NAME.equals(toolName)) {
             return; // Task / TodoWrite 不参与 ToolCallCard 组管理
         }
+        if (!isCardedTool(toolName)) {
+            return; // 非展示工具不参与工具组管理
+        }
         if (callId != null) {
             state.activeToolCallIds.remove(callId);
         }
@@ -782,6 +770,14 @@ public abstract class AbstractHomePageViewModel {
         if (group != null && state.activeToolCallIds.isEmpty()) {
             group.collapseNow();
         }
+    }
+
+    /** 展示工具组卡片的工具。其余工具（MemoryView/Grep 等）仅用于分隔思考段，不展示工具卡。 */
+    private static boolean isCardedTool(String toolName) {
+        return switch (toolName) {
+            case "Read", "Write", "Edit", "Command" -> true;
+            default -> false;
+        };
     }
 
     // ===== 相邻同类卡片合并（实时流式 / 历史加载共用） =====
@@ -807,14 +803,50 @@ public abstract class AbstractHomePageViewModel {
         }
     }
 
-    /** 获取思考卡：最后一张是 ReasoningCard → 复用并冻结前段（beginNewSegment）；否则新建。 */
+    /**
+     * 获取「思考过程」折叠容器：已存在（未闭合）则复用；
+     * 上一张列表项已是「思考过程」容器（前一段思考在无正文轮次结束时折叠闭合）则复用重开，
+     * 使连续（相邻、无正文分隔）的思考过程合并进同一折叠块；
+     * 否则新建列表项并展开。
+     * 思考段与思考引发的工具组都收进该容器，正文开始或轮次结束时折叠闭合。
+     */
+    private ReasoningProcessCard obtainReasoningProcess(SessionRuntimeState state, boolean isActive) {
+        if (state.currentReasoningProcess != null) {
+            return state.currentReasoningProcess;
+        }
+        if (peekLastCard(state) instanceof ReasoningProcessCard existing) {
+            existing.expand();
+            state.currentReasoningProcess = existing;
+            return existing;
+        }
+        ReasoningProcessCard card = new ReasoningProcessCard();
+        addCardToLists(card, state, isActive);
+        card.expand();
+        state.currentReasoningProcess = card;
+        return card;
+    }
+
+    /** 折叠并闭合当前「思考过程」容器（正文开始 / 轮次结束时调用）。 */
+    private void collapseReasoningProcess(SessionRuntimeState state) {
+        if (state.currentReasoningProcess != null) {
+            state.currentReasoningProcess.collapse();
+            state.currentReasoningProcess = null;
+        }
+    }
+
+    /**
+     * 获取思考子块：归入「思考」二级节点（容器尾部二级节点是思考则复用，否则新建），
+     * 节点内尾块是思考子块 → 复用并分段追加（beginNewSegment）；否则新建子块。
+     */
     private ReasoningCard obtainReasoningCard(SessionRuntimeState state, boolean isActive) {
-        if (peekLastCard(state) instanceof ReasoningCard existing) {
+        ReasoningProcessCard container = obtainReasoningProcess(state, isActive);
+        ProcessSectionNode section = container.thinkingSection();
+        if (section.lastContent() instanceof ReasoningCard existing) {
             existing.beginNewSegment();
             return existing;
         }
         ReasoningCard card = new ReasoningCard();
-        addCardToLists(card, state, isActive);
+        section.addContent(card);
         return card;
     }
 
@@ -829,12 +861,30 @@ public abstract class AbstractHomePageViewModel {
         return card;
     }
 
-    /** 获取工具组卡：最后一张是工具组包装卡 → 复用并同步组引用；否则新建。 */
+    /**
+     * 获取工具组卡。思考容器存在（未闭合）→ 工具组卡直接挂进容器 body
+     * （无「工具调用」二级节点标题），即思考引发的工具链收进容器；
+     * 容器已闭合/不存在（正文后的纯工具调用）→ 独立列表项，相邻工具组复用。
+     */
     private ToolCallCard obtainToolGroup(SessionRuntimeState state, boolean isActive) {
+        if (state != null && state.currentReasoningProcess != null) {
+            ReasoningProcessCard container = state.currentReasoningProcess;
+            if (!state.needNewToolGroup) {
+                ToolCallCard last = container.lastToolCard();
+                if (last != null) {
+                    state.currentToolGroup = last;
+                    return last;
+                }
+            }
+            ToolCallCard group = new ToolCallCard(resolveProjectPath(session));
+            state.currentToolGroup = group;
+            state.needNewToolGroup = false;
+            container.addToolCard(group);
+            return group;
+        }
         if (state != null && peekLastCard(state) instanceof NodeMessageCard nmc
                 && nmc.getNode() instanceof ToolCallCard existing) {
             state.currentToolGroup = existing;
-            state.currentToolGroupWrapper = nmc;
             state.needNewToolGroup = false;
             return existing;
         }
@@ -842,7 +892,6 @@ public abstract class AbstractHomePageViewModel {
         NodeMessageCard wrapper = new NodeMessageCard(group);
         if (state != null) {
             state.currentToolGroup = group;
-            state.currentToolGroupWrapper = wrapper;
             state.needNewToolGroup = false;
         }
         addCardToLists(wrapper, state, isActive);
@@ -855,26 +904,31 @@ public abstract class AbstractHomePageViewModel {
 
     /** 结束当前流式 assistant 文本卡片（未结束则移除空卡）。 */
     private void finishStreamingText(SessionRuntimeState state, boolean isActive) {
-        // 工具分界：思考段一并闭合（必须先于空卡提前返回，否则仅思考无正文的轮次
-        // currentReasoningCard 残留，下一段思考会覆盖替换本段思考内容）
-        state.currentReasoningCard = null;
+        // 工具分界：思考段一并定格（必须先于空卡提前返回，否则仅思考无正文的轮次
+        // currentReasoningCard 残留，下一段思考会覆盖替换本段思考内容）。
+        // 容器保持开启：随后的工具组收进同一「思考过程」折叠层
+        if (state.currentReasoningCard != null) {
+            state.currentReasoningCard.finalizeSegment();
+            state.currentReasoningCard = null;
+        }
         if (state.currentAssistantCard == null) {
             return;
         }
         AssistantMessageCard card = state.currentAssistantCard;
         state.currentAssistantCard = null;
         card.complete("TOOL_CALLS");
-        if (card.isValid()) {
+        if (card.isEmpty()) {
             if (isActive) messages.remove(card);
             state.savedMessages.remove(card);
         }
     }
 
-    private void processMessageEvent(MessageEvent event, SessionRuntimeState state, boolean isActive) {
+    private void processMessageEvent(MessageEvent event, SessionRuntimeState state, boolean isActive,
+            boolean fromHistory) {
         if (event.isUserMessage()) {
             processUserEvent(event, state, isActive);
         } else if (event.isAssistantMessage()) {
-            processAssistantEvent(event, state, isActive);
+            processAssistantEvent(event, state, isActive, fromHistory);
         } else {
             log.warn("未处理的事件类型: {}", event.getEventType());
         }
@@ -882,10 +936,10 @@ public abstract class AbstractHomePageViewModel {
 
     private void processUserEvent(MessageEvent e, SessionRuntimeState state, boolean isActive) {
         state.currentAssistantCard = null;
-        // 新一轮用户交互：重置思考卡与工具组，后续事件新起模块
+        // 新一轮用户交互：重置思考容器/思考段与工具组，后续事件新起模块
+        collapseReasoningProcess(state);
         state.currentReasoningCard = null;
         state.currentToolGroup = null;
-        state.currentToolGroupWrapper = null;
         state.needNewToolGroup = true;
         state.activeToolCallIds.clear();
         // synthetic 消息（Goal 续轮 goal_feedback / 后台任务通知等系统注入）以通知样式渲染
@@ -896,22 +950,37 @@ public abstract class AbstractHomePageViewModel {
         state.savedMessages.add(card);
     }
 
-    private void processAssistantEvent(MessageEvent e, SessionRuntimeState state, boolean isActive) {
+    /**
+     * assistant 消息渲染状态机：实时流（chunk 累积）与历史加载（聚合完整消息）
+     * 共用，保证合并语义一致。
+     * <p>
+     * 实时流：finishReason 为空的 chunk 逐条累积（text 追加、reasoning 覆盖），
+     * TOOL_CALLS / STOP 收尾；历史加载（fromHistory=true）：每条消息即聚合完整
+     * 内容（reasoning/text/toolCalls 齐备），不存在 chunk 形态，finishReason
+     * 缺失时兜底按收尾处理。
+     */
+    private void processAssistantEvent(MessageEvent e, SessionRuntimeState state, boolean isActive,
+            boolean fromHistory) {
         String finishReason = e.getFinishReason();
         String text = e.getText();
         String reasoning = e.getReasoningContent();
+        // 历史事件为聚合完整消息，无流式 chunk 形态
+        boolean isChunk = !fromHistory
+                && (finishReason == null || finishReason.isBlank() || "_UNKNOWN".equals(finishReason));
 
-        if (finishReason == null || finishReason.isBlank() || "_UNKNOWN".equals(finishReason)) {
+        if (isChunk) {
             // 流式 chunk：直接累积。per-session isPaused 控制是否累积
             if (state.isPaused) {
                 return;
             }
-            // 思考流：每段连续思考一张 ReasoningCard，分段互不覆盖；
+            // 思考流：每段连续思考一个 ReasoningCard 子块，分段互不覆盖；
             // 思考 chunk 先于本轮正文/工具产生，追加即为其时序位置
-            // （思考 → 正文 → 工具组 → 下一段思考 …）
-            if (reasoning != null && !reasoning.isBlank()) {
+            // （思考+工具链 → 正文 → 下一个思考+工具链 …）
+            // 正文流开启后到达的 reasoning 忽略：部分 API 正文 chunk 会携带完整
+            // reasoningContent（残留），若不忽略会重复渲染出相同内容的思考
+            if (reasoning != null && !reasoning.isBlank() && state.currentAssistantCard == null) {
                 if (state.currentReasoningCard == null) {
-                    // 相邻同类合并：上一张卡也是思考卡时复用并冻结前段，否则新建
+                    // 新思考段开始：容器内尾块也是思考（连续思考）则分段追加，否则新建子块
                     state.currentReasoningCard = obtainReasoningCard(state, isActive);
                 }
                 state.currentReasoningCard.updateReasoning(reasoning);
@@ -925,27 +994,97 @@ public abstract class AbstractHomePageViewModel {
                 }
                 // 相邻同类合并：上一张卡也是正文卡时重开续写，否则新建
                 state.currentAssistantCard = obtainAssistantCard(state, isActive);
-                // 正文开始：当前思考段落闭合，此后（跨工具轮次）的新思考另起一张
-                state.currentReasoningCard = null;
+                // 正文开始：当前思考段定格，「思考过程」容器整体折叠闭合，
+                // 此后（跨工具轮次）的新思考新起一个容器
+                if (state.currentReasoningCard != null) {
+                    state.currentReasoningCard.finalizeSegment();
+                    state.currentReasoningCard = null;
+                }
+                collapseReasoningProcess(state);
                 // 新一条 AI 话语开始（出现实质文本）：此后的工具调用归属于新的一组
                 state.needNewToolGroup = true;
             }
             if (text != null && !text.isBlank()) {
                 state.currentAssistantCard.appendContent(text);
             }
-        } else if ("STOP".equals(finishReason)) {
-            // 结束流式
+        } else if ("TOOL_CALLS".equals(finishReason)) {
+            if (fromHistory) {
+                // 历史聚合形态：一条消息同时携带完整 reasoning/text/toolCalls，
+                // 与实时流（chunk 累积 → TOOL_CALLS 收尾）等价地依次定格渲染
+                renderHistoryReasoning(reasoning, state, isActive);
+                if (text != null && !text.isBlank()) {
+                    // 正文出现：思考段定格、容器折叠（与实时正文开始路径一致），
+                    // 随后的工具组走独立列表项分支
+                    if (state.currentReasoningCard != null) {
+                        state.currentReasoningCard.finalizeSegment();
+                        state.currentReasoningCard = null;
+                    }
+                    collapseReasoningProcess(state);
+                    state.needNewToolGroup = true;
+                    AssistantMessageCard card = obtainAssistantCard(state, isActive);
+                    card.appendContent(text);
+                    card.complete("TOOL_CALLS");
+                }
+                if (e.hasToolCalls()) {
+                    // 实时由 UICardEvent 驱动工具组，历史由 toolCalls 字段重建为已完成
+                    // 折叠态的工具组卡片（相邻工具组合并）。仅重建展示工具，与实时一致
+                    // （避免空命令卡、并保持思考容器边界一致）。
+                    // 思考过程未闭合（无正文）→ 思考过程中的工具调用不显示，跳过重建
+                    List<MessageEvent.ToolCallInfo> cardedCalls = e.getToolCalls().stream()
+                            .filter(tc -> isCardedTool(tc.name()))
+                            .toList();
+                    if (!cardedCalls.isEmpty()) {
+                        ToolCallCard group = obtainToolGroup(state, isActive);
+                        for (MessageEvent.ToolCallInfo tc : cardedCalls) {
+                            group.addToolCall(tc.name(), tc.arguments());
+                        }
+                        group.collapseNow();
+                    }
+                }
+            } else {
+                // 工具调用即将发生：闭合当前正文卡片；思考容器保持开启，
+                // 随后的工具组收进同一「思考过程」折叠层，工具结束后的新 AI 文本
+                // 自然新起一个正文卡片 —— 严格按事件顺序展示。
+                finishStreamingText(state, isActive);
+            }
+        } else {
+            // 收尾：STOP / LENGTH 等结束原因（含历史 finishReason 缺失的兜底）。
+            // 原实现仅匹配 STOP，其它 finishReason 的最终文本会被静默丢弃
             state.isStreaming = false;
             state.isPaused = false;
-            state.currentReasoningCard = null;
+            // 流结束收尾：思考段定格，「思考过程」容器与工具组自动折叠
+            if (state.currentReasoningCard != null) {
+                state.currentReasoningCard.finalizeSegment();
+                state.currentReasoningCard = null;
+            }
+            collapseReasoningProcess(state);
+            if (state.currentToolGroup != null) {
+                state.currentToolGroup.collapseNow();
+            }
+            // 收尾重置工具组状态：自动续轮（Goal Loop / 计划执行轮，不经过 processUserEvent）
+            // 若残留旧引用会跨轮复用上一轮的工具组卡片
+            state.currentToolGroup = null;
+            state.needNewToolGroup = true;
             if (isActive) {
                 Store.isStreaming.set(false);
                 Store.isPaused.set(false);
             }
 
+            // 历史/聚合消息携带的思考内容：渲染定格思考子块。实时收尾 chunk 的
+            // reasoningContent 是正文流残留，不处理（思考已由 chunk 分支渲染）
+            if (fromHistory) {
+                renderHistoryReasoning(reasoning, state, isActive);
+                // 历史收尾：思考段与容器定格折叠（无后续事件会再折叠它们）
+                if (state.currentReasoningCard != null) {
+                    state.currentReasoningCard.finalizeSegment();
+                    state.currentReasoningCard = null;
+                }
+                collapseReasoningProcess(state);
+            }
+
             if (state.currentAssistantCard != null) {
                 state.currentAssistantCard.complete("STOP");
-                if (state.currentAssistantCard.isValid()) {
+                if (state.currentAssistantCard.isEmpty()) {
                     if (isActive) messages.remove(state.currentAssistantCard);
                     state.savedMessages.remove(state.currentAssistantCard);
                 }
@@ -956,11 +1095,20 @@ public abstract class AbstractHomePageViewModel {
                 card.appendContent(text);
                 card.complete("STOP");
             }
-        } else if ("TOOL_CALLS".equals(finishReason)) {
-            // 工具调用即将发生：闭合当前正文卡片，工具组以独立列表项追加在其后，
-            // 工具结束后的新 AI 文本自然新起一个正文卡片 —— 严格按事件顺序展示。
-            finishStreamingText(state, isActive);
         }
+    }
+
+    /**
+     * 历史消息的思考内容渲染：定格渲染为思考子块。
+     * 连续思考（容器内尾块是思考）由 obtainReasoningCard 合并分段追加。
+     */
+    private void renderHistoryReasoning(String reasoning, SessionRuntimeState state, boolean isActive) {
+        if (reasoning == null || reasoning.isBlank()) {
+            return;
+        }
+        ReasoningCard card = obtainReasoningCard(state, isActive);
+        card.updateReasoning(reasoning);
+        card.finalizeSegment();
     }
 
     public void addUserMessage(String text) {
@@ -1035,18 +1183,47 @@ public abstract class AbstractHomePageViewModel {
         if (this.session != null) {
             String sid = this.session.id();
 
+            // 中途停止时已生成的思考一并落盘（历史重建才不会丢失最后一段思考）：
+            // 取「思考过程」容器内全部思考子块内容（跨工具轮次的多段思考都在其中）
+            if (currentState.currentReasoningCard != null) {
+                currentState.currentReasoningCard.finalizeSegment();
+                currentState.currentReasoningCard = null;
+            }
+            ReasoningProcessCard processCard = currentState.currentReasoningProcess;
+            String reasoningText = processCard != null ? processCard.getContent() : null;
+            if (processCard != null) {
+                processCard.collapse();
+                currentState.currentReasoningProcess = null;
+            }
+
             if (currentState.currentAssistantCard != null) {
-                String partial = currentState.currentAssistantCard.getContent();
-                if (partial != null && !partial.isBlank()) {
+                AssistantMessageCard card = currentState.currentAssistantCard;
+                // 定格：accumulator → content + Markdown 渲染。不能用 setStreaming(false)，
+                // 流式期间 content 为空，会触发 renderMarkdown(空) 把已流出正文从 UI 清空
+                card.complete("STOP");
+                String partial = card.getContent();
+                if (card.isEmpty()) {
+                    // 空卡移除（避免残留空白列表项）
+                    messages.remove(card);
+                    currentState.savedMessages.remove(card);
+                } else if (reasoningText != null && !reasoningText.isBlank()) {
+                    sessionManager.appendEvent(MessageEvent.assistantStop(sid, partial, reasoningText));
+                } else {
                     sessionManager.appendEvent(MessageEvent.assistantStop(sid, partial));
                 }
-                currentState.currentAssistantCard.setStreaming(false);
                 currentState.currentAssistantCard = null;
+            } else if (reasoningText != null && !reasoningText.isBlank()) {
+                // 仅思考无正文（停止时正在思考）：落盘带 reasoning 的 STOP 事件
+                sessionManager.appendEvent(MessageEvent.assistantStop(sid, "", reasoningText));
             }
 
             sessionManager.finalizeInterruptedToolCalls(sid);
         } else if (currentState.currentAssistantCard != null) {
-            currentState.currentAssistantCard.setStreaming(false);
+            // session 尚未落盘（新建会话）：仅定格 UI，同样不能用 setStreaming(false) 清空卡片
+            currentState.currentAssistantCard.complete("STOP");
+            if (currentState.currentAssistantCard.isEmpty()) {
+                messages.remove(currentState.currentAssistantCard);
+            }
             currentState.currentAssistantCard = null;
         }
     }

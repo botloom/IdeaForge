@@ -92,6 +92,21 @@
                 <version>${commonmark.version}</version>
             </dependency>
             <dependency>
+                <groupId>org.commonmark</groupId>
+                <artifactId>commonmark-ext-gfm-strikethrough</artifactId>
+                <version>${commonmark.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.commonmark</groupId>
+                <artifactId>commonmark-ext-task-list-items</artifactId>
+                <version>${commonmark.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.commonmark</groupId>
+                <artifactId>commonmark-ext-autolink</artifactId>
+                <version>${commonmark.version}</version>
+            </dependency>
+            <dependency>
                 <groupId>com.vladsch.flexmark</groupId>
                 <artifactId>flexmark-html2md-converter</artifactId>
                 <version>${flexmark.version}</version>

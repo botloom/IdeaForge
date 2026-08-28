@@ -91,9 +91,23 @@ public final class MessageEvent extends AbstractEvent {
     public static final String METADATA_NOTIFICATION = "notification";
     public static final String METADATA_CONSUMED = "consumed";
 
+    /**
+     * 压缩影子轮次标记（metadata key）：compactionShadow=true 表示该 synthetic
+     * 事件由压缩策略生成（shadow-prompt 用户消息 + 摘要助手消息），是框架伪消息。
+     * 与续轮 / 通知类的 synthetic 区分：后者是真实发生的系统注入，历史加载时应
+     * 渲染为 NotificationCard 并充当轮次边界；前者应跳过不渲染。
+     */
+    public static final String METADATA_COMPACTION_SHADOW = "compactionShadow";
+
     @JsonIgnore
     public boolean isSynthetic() {
         Object v = metadata.get(METADATA_SYNTHETIC);
+        return v instanceof Boolean b && b;
+    }
+
+    @JsonIgnore
+    public boolean isCompactionShadow() {
+        Object v = metadata.get(METADATA_COMPACTION_SHADOW);
         return v instanceof Boolean b && b;
     }
 
@@ -184,11 +198,21 @@ public final class MessageEvent extends AbstractEvent {
     }
 
     public static MessageEvent assistantStop(String sessionId, String text) {
+        return assistantStop(sessionId, text, null);
+    }
+
+    /** 带思考内容的 STOP 事件（中途停止时把已生成的思考一并落盘，供历史重建）。 */
+    public static MessageEvent assistantStop(String sessionId, String text, String reasoningContent) {
+        Map<String, Object> props = new HashMap<>();
+        props.put("finishReason", "STOP");
+        if (reasoningContent != null && !reasoningContent.isBlank()) {
+            props.put("reasoningContent", reasoningContent);
+        }
         return MessageEvent.builder()
                 .sessionId(sessionId)
                 .message(AssistantMessage.builder()
                         .content(text)
-                        .properties(Map.of("finishReason", "STOP"))
+                        .properties(props)
                         .build())
                 .build();
     }

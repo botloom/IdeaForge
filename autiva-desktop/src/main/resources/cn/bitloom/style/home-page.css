@@ -545,9 +545,20 @@
     -fx-text-fill: #1d1d1f;
 }
 
+/* AI 消息卡内块间距：标题/段落/列表/代码块之间统一 8px，
+   否则 VBox 默认 0 + 段落 padding 清零会导致块贴块 */
+.chat-message--assistant {
+    -fx-spacing: 8;
+}
+
+/* 注意：不要对 .chat-message__content 做 padding 清零——
+   它会以更高优先级覆盖 .md-heading-* 的 padding，导致标题底线紧贴文字。
+   AI 消息卡内块间距统一由 .chat-message--assistant 的 spacing 提供。 */
+
 /* 思考折叠块（ReasoningCard，独立列表项）：标题 + 展开/收起按钮，默认折叠 */
+/* 垂直节奏与 AI 正文/工具卡统一：全部依赖 cell 6 + chat-message 6 */
 .reasoning-card {
-    -fx-padding: 4 0 0 0;
+    -fx-padding: 0;
 }
 
 .fold-section {
@@ -570,6 +581,8 @@
     -fx-pref-height: 7;
     -fx-max-height: 7;
     -fx-shape: "M0,0 L6,3.2 L0,6.4 L0,6 L3.6,3.2 L0,0.4 Z";
+    /* 几何居中时相对 14px 标题文字视觉中线略偏高，下移 1px 对齐 */
+    -fx-translate-y: 1;
 }
 
 .chevron-node:expanded {
@@ -578,25 +591,63 @@
 }
 
 .fold-title {
-    -fx-font-size: 15px;
+    -fx-font-size: 14px;
     -fx-font-weight: 500;
     -fx-text-fill: #86868b;
     -fx-font-family: "SF Pro Text", -apple-system, "Segoe UI", sans-serif;
 }
 
-/* 展开的思考正文：细引导竖线缩进离左缘 16px，灰卡片与竖线间距加倍为 16px（折叠时整体隐藏） */
+/* 「思考过程」容器 body：无灰卡片、无整列竖线，仅垂直排列二级节点；
+   竖线由二级节点（思考/工具调用）各自内容区提供，避免与 ToolCallCard 内部竖线双线 */
 .fold-body {
-    -fx-padding: 8 14 8 47;
-    -fx-background-color: #f5f5f7;
-    -fx-background-insets: 0 0 0 33;
-    -fx-background-radius: 10;
-    -fx-border-color: #d9d9de;
-    -fx-border-width: 0 0 0 1;
-    -fx-border-insets: 0 0 0 16;
+    -fx-padding: 0;
+    -fx-spacing: 6;
 }
 
 .thinking-text {
     -fx-fill: #86868b;
+}
+
+/* 思考内容文字统一思考体风格（浅灰、字号略小），覆盖 md 默认色 */
+.process-section--thinking .md-paragraph {
+    -fx-padding: 0;
+    -fx-line-spacing: 4;
+}
+
+.process-section--thinking Text {
+    -fx-fill: #86868b;
+    -fx-font-size: 14px;
+}
+
+/* 「思考过程」容器内二级折叠节点（思考 / 工具调用）：小一号标题 + 左缩进内容 */
+.process-section {
+    -fx-spacing: 4;
+}
+
+.process-section__header {
+    -fx-spacing: 4;
+    -fx-alignment: CENTER_LEFT;
+    -fx-cursor: hand;
+    -fx-padding: 2 0;
+}
+
+.process-section__title {
+    -fx-font-size: 13px;
+    -fx-font-weight: 500;
+    -fx-text-fill: #a1a1a6;
+    -fx-font-family: "SF Pro Text", -apple-system, "Segoe UI", sans-serif;
+}
+
+/* 思考节点内容：左侧引导竖线（x=8）+ 灰色卡片（思考文字全部收纳其中） */
+.process-section--thinking .process-section__content {
+    -fx-spacing: 6;
+    -fx-padding: 8 14 8 39;
+    -fx-background-color: #f5f5f7;
+    -fx-background-insets: 0 0 0 25;
+    -fx-background-radius: 10;
+    -fx-border-color: #d9d9de;
+    -fx-border-width: 0 0 0 1;
+    -fx-border-insets: 0 0 0 8;
 }
 
 .chat-message--streaming {
@@ -1395,14 +1446,15 @@
 }
 
 /* ===== 工具调用内联状态行（ToolCallCard）=====
-   内联紧凑状态行：无卡片边框/背景，标题行为灰色小字状态总结，点击展开逐条纯文本明细。 */
+   垂直节奏与思考卡/AI 正文一致（padding 6 0）；内联紧凑状态行：无卡片边框/背景，
+   标题行为灰色小字状态总结，点击展开逐条纯文本明细。 */
 .tool-call-card {
     -fx-background-color: transparent;
-    -fx-padding: 4 0 0 0;
+    -fx-padding: 6 0;
 }
 
 .tool-call-card__content {
-    -fx-padding: 2 0;
+    -fx-padding: 0;
 }
 
 .tool-call-card__header {
@@ -1412,55 +1464,34 @@
 }
 
 .tool-call-card__title {
-    -fx-font-size: 15px;
+    -fx-font-size: 14px;
     -fx-font-weight: normal;
     -fx-text-fill: #86868b;
     -fx-font-family: "SF Pro Text", -apple-system, "Segoe UI", sans-serif;
 }
 
-/* 可折叠主体：与标题栏区分 */
+/* 可折叠主体：去掉分组与条目 icon，整列一条竖线引导，文件/命令直接挂线右侧 */
 .tool-call-card__details {
-    -fx-spacing: 6;
-    -fx-padding: 6 0 0 0;
-}
-
-/* 类型分组：分组头（icon + 已读取 N 个文件）+ 竖线引导的明细列表 */
-.tool-call-card__group {
-    -fx-spacing: 2;
-}
-
-.tool-call-card__group-header {
-    -fx-spacing: 6;
-    -fx-alignment: CENTER_LEFT;
-    -fx-padding: 4 0 2 0;
-}
-
-.tool-call-card__group-title {
-    -fx-font-size: 15px;
-    -fx-font-weight: 500;
-    -fx-text-fill: #6e6e73;
-    -fx-font-family: "SF Pro Text", -apple-system, "Segoe UI", sans-serif;
-}
-
-/* 明细列表：无缩进，与分组头左对齐 */
-.tool-call-card__entries {
-    -fx-spacing: 3;
-    -fx-padding: 0 0 2 0;
+    -fx-spacing: 4;
+    -fx-padding: 6 0 0 13;
+    -fx-border-color: #d9d9de;
+    -fx-border-width: 0 0 0 1;
+    -fx-border-insets: 0 0 0 8;
 }
 
 /* 命令行：等宽字体 */
 .tool-call-card__command {
-    -fx-font-size: 15px;
+    -fx-font-size: 14px;
     -fx-text-fill: #3a3a3c;
     -fx-font-family: "SF Mono", "JetBrains Mono", Consolas, monospace;
 }
 
 .tool-call-card__body {
-    -fx-spacing: 4;
+    -fx-spacing: 8;
 }
 
 .tool-call-card__fallback {
-    -fx-font-size: 15px;
+    -fx-font-size: 14px;
     -fx-text-fill: #3a3a3c;
     -fx-font-family: "SF Pro Text", -apple-system, "Segoe UI", sans-serif;
 }
@@ -1468,85 +1499,93 @@
 
 
 .md-content {
-    -fx-spacing: 6;
+    -fx-spacing: 12;
     -fx-padding: 2 0;
 }
 
 .md-paragraph {
-    -fx-line-spacing: 1.8;
-    -fx-padding: 3 0;
-    -fx-text-fill: #2c2c2e;
+    -fx-line-spacing: 5;
+    -fx-padding: 2 0;
+}
+
+.md-paragraph Text {
+    -fx-fill: #1f2328;
 }
 
 .md-heading {
     -fx-font-weight: bold;
-    -fx-text-fill: #1d1d1f;
+}
+
+.md-heading Text {
+    -fx-fill: #1f2328;
 }
 
 .md-heading-1 {
-    -fx-font-size: 26px;
+    -fx-font-size: 15px;
     -fx-line-spacing: 1.3;
-    -fx-padding: 14 0 10 0;
+    -fx-padding: 12 0 10 0;
+    -fx-border-color: #d1d9e0;
+    -fx-border-width: 0 0 1 0;
 }
 
 .md-heading-2 {
-    -fx-font-size: 21px;
+    -fx-font-size: 15px;
     -fx-line-spacing: 1.3;
-    -fx-padding: 12 0 8 0;
+    -fx-padding: 10 0 8 0;
+    -fx-border-color: #d1d9e0;
+    -fx-border-width: 0 0 1 0;
 }
 
 .md-heading-3 {
-    -fx-font-size: 17px;
+    -fx-font-size: 15px;
     -fx-line-spacing: 1.3;
-    -fx-padding: 10 0 6 0;
+    -fx-padding: 8 0 2 0;
 }
 
 .md-heading-4 {
-    -fx-font-size: 16px;
-    -fx-text-fill: #1d1d1f;
-    -fx-padding: 8 0 4 0;
+    -fx-font-size: 15px;
+    -fx-padding: 6 0 2 0;
 }
 
 .md-heading-5 {
     -fx-font-size: 15px;
-    -fx-text-fill: #3a3a3c;
-    -fx-padding: 6 0 3 0;
+    -fx-padding: 5 0 1 0;
 }
 
 .md-heading-6 {
-    -fx-font-size: 14px;
-    -fx-text-fill: #636366;
-    -fx-padding: 5 0 2 0;
+    -fx-font-size: 15px;
+    -fx-padding: 5 0 1 0;
+}
+
+.md-heading-6 Text {
+    -fx-fill: #59636e;
 }
 
 .md-code-block {
-    -fx-background-color: #23272e;
-    -fx-background-radius: 10;
+    -fx-background-color: #161b22;
+    -fx-background-radius: 6;
     -fx-padding: 0;
-    -fx-effect: dropshadow(gaussian, rgba(0, 0, 0, 0.12), 10, 0, 0, 2);
 }
 
 .md-code-header {
-    -fx-padding: 8 14;
-    -fx-background-color: rgba(255, 255, 255, 0.04);
-    -fx-background-radius: 10 10 0 0;
+    -fx-padding: 6 12;
+    -fx-background-color: #1f242c;
+    -fx-background-radius: 6 6 0 0;
     -fx-alignment: CENTER_LEFT;
-    -fx-border-color: rgba(255, 255, 255, 0.08);
+    -fx-border-color: #2d333b;
     -fx-border-width: 0 0 1 0;
 }
 
 .md-code-lang {
     -fx-font-size: 11px;
-    -fx-text-fill: #9ba3af;
+    -fx-text-fill: #8b949e;
     -fx-font-family: "SF Pro Text", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
     -fx-font-weight: 600;
-    -fx-text-transform: uppercase;
-    -fx-letter-spacing: 0.5;
 }
 
 .md-code-copy {
     -fx-font-size: 11px;
-    -fx-text-fill: #7aa2f7;
+    -fx-text-fill: #8b949e;
     -fx-cursor: hand;
     -fx-font-family: "SF Pro Text", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
     -fx-padding: 3 8;
@@ -1554,87 +1593,141 @@
 }
 
 .md-code-copy:hover {
-    -fx-text-fill: #9bb9fb;
-    -fx-background-color: rgba(122, 162, 247, 0.12);
+    -fx-text-fill: #e6edf3;
+    -fx-background-color: rgba(255, 255, 255, 0.08);
 }
 
 .md-code-content {
     -fx-padding: 12 14;
     -fx-font-size: 13px;
     -fx-font-family: "SF Mono", Monaco, "Cascadia Code", "Consolas", monospace;
-    -fx-background-radius: 0 0 10 10;
+    -fx-background-radius: 0 0 6 6;
     -fx-background-color: transparent;
-    -fx-line-spacing: 1.6;
+    -fx-line-spacing: 4;
 }
 
 .md-code-text {
-    -fx-fill: #c8ccd4;
+    -fx-fill: #e6edf3;
 }
 
 .md-code-keyword {
-    -fx-fill: #c678dd;
+    -fx-fill: #ff7b72;
     -fx-font-weight: bold;
 }
 
 .md-code-string {
-    -fx-fill: #98c379;
+    -fx-fill: #a5d6ff;
 }
 
 .md-code-number {
-    -fx-fill: #d19a66;
+    -fx-fill: #79c0ff;
 }
 
 .md-code-comment {
-    -fx-fill: #5c6370;
+    -fx-fill: #8b949e;
     -fx-font-style: italic;
 }
 
 .md-inline-code {
     -fx-font-family: "SF Mono", Monaco, "Cascadia Code", monospace;
-    -fx-font-size: 12.5px;
-    -fx-text-fill: #d05a64;
-    -fx-background-color: rgba(208, 90, 100, 0.1);
+    -fx-font-size: 13px;
+    -fx-text-fill: #1f2328;
+    -fx-background-color: rgba(175, 184, 193, 0.2);
     -fx-background-radius: 4;
-    -fx-padding: 1.5 5;
+    -fx-padding: 1 5;
 }
 
 .md-list {
-    -fx-spacing: 3;
+    -fx-spacing: 4;
     -fx-padding: 4 0 6 0;
 }
 
+.md-list--nested {
+    -fx-padding: 2 0 2 14;
+}
+
 .md-list-item {
-    -fx-spacing: 8;
+    -fx-spacing: 4;
     -fx-alignment: TOP_LEFT;
     -fx-padding: 2 0;
 }
 
+.md-list-item-content {
+    -fx-spacing: 6;
+}
+
+.md-list-marker-box {
+    -fx-alignment: TOP_LEFT;
+}
+
 .md-list-marker {
-    -fx-fill: #007aff;
+    -fx-fill: #59636e;
     -fx-font-weight: 600;
+}
+
+.md-task-checkbox {
+    -fx-padding: 3 4 0 0;
+}
+
+.md-task-checkbox .box {
+    -fx-background-color: white;
+    -fx-border-color: #d1d9e0;
+    -fx-border-width: 1;
+    -fx-border-radius: 3;
+    -fx-background-radius: 3;
+    -fx-padding: 5;
+}
+
+.md-task-checkbox:hover .box {
+    -fx-border-color: #0969da;
+}
+
+.md-task-checkbox:selected .box {
+    -fx-background-color: #0969da;
+    -fx-border-color: #0969da;
+}
+
+.md-task-checkbox:selected .mark {
+    -fx-background-color: white;
+}
+
+.md-task-content--done {
+    -fx-opacity: 0.5;
+}
+
+.md-strikethrough {
+    -fx-strikethrough: true;
+}
+
+.md-html-inline {
+    -fx-fill: #59636e;
 }
 
 .md-blockquote {
     -fx-spacing: 0;
     -fx-padding: 0;
-    -fx-background-color: rgba(0, 122, 255, 0.06);
-    -fx-background-radius: 8;
+    -fx-background-color: transparent;
+    -fx-background-radius: 0;
 }
 
 .md-blockquote-bar {
-    -fx-background-color: #007aff;
-    -fx-background-radius: 4 0 0 4;
+    -fx-background-color: #d1d9e0;
+    -fx-background-radius: 0;
     -fx-min-width: 4;
     -fx-pref-width: 4;
 }
 
 .md-blockquote-content {
     -fx-padding: 10 14;
-    -fx-spacing: 4;
+    -fx-spacing: 6;
+}
+
+.md-blockquote-content .md-paragraph Text {
+    -fx-fill: #59636e;
 }
 
 .md-link {
-    -fx-text-fill: #007aff;
+    -fx-text-fill: #0969da;
     -fx-underline: false;
     -fx-padding: 0;
     -fx-focus-color: transparent;
@@ -1652,17 +1745,16 @@
 }
 
 .md-link:hover {
-    -fx-text-fill: #0051d5;
+    -fx-text-fill: #0550ae;
     -fx-underline: true;
 }
 
-.md-thematic-break {
-    -fx-padding: 10 0;
+.md-thematic-break-wrap {
+    -fx-padding: 16 0;
 }
 
-.md-thematic-break .line {
-    -fx-border-color: rgba(0, 0, 0, 0.12);
-    -fx-border-width: 1 0 0 0;
+.md-thematic-break {
+    -fx-background-color: #d1d9e0;
 }
 
 .md-html-block {
@@ -1671,16 +1763,15 @@
 
 .md-table-scroll {
     -fx-background-color: transparent;
-    -fx-background-radius: 10;
-    -fx-border-color: rgba(0, 0, 0, 0.10);
+    -fx-background-radius: 6;
+    -fx-border-color: #d1d9e0;
     -fx-border-width: 1;
-    -fx-border-radius: 10;
-    -fx-effect: dropshadow(gaussian, rgba(0, 0, 0, 0.06), 10, 0, 0, 2);
+    -fx-border-radius: 6;
 }
 
 .md-table-scroll > .viewport {
     -fx-background-color: transparent;
-    -fx-background-radius: 10;
+    -fx-background-radius: 6;
 }
 
 .md-table-scroll > .scroll-bar:horizontal {
@@ -1716,34 +1807,34 @@
 
 .md-table {
     -fx-background-color: white;
-    -fx-background-radius: 10;
+    -fx-background-radius: 6;
     -fx-spacing: 0;
     -fx-padding: 0;
 }
 
 .md-table-header-row {
-    -fx-background-color: #f8f9fb;
-    -fx-border-color: rgba(0, 0, 0, 0.07);
+    -fx-background-color: #f6f8fa;
+    -fx-border-color: #d1d9e0;
     -fx-border-width: 0 0 1 0;
     -fx-spacing: 0;
-    -fx-background-radius: 10 10 0 0;
+    -fx-background-radius: 6 6 0 0;
 }
 
 .md-table-header-row > .md-table-header-cell:first-child {
-    -fx-background-radius: 10 0 0 0;
+    -fx-background-radius: 6 0 0 0;
 }
 
 .md-table-header-row > .md-table-header-cell:last-child {
-    -fx-background-radius: 0 10 0 0;
+    -fx-background-radius: 0 6 0 0;
 }
 
 .md-table-header-cell {
     -fx-font-family: "SF Pro Text", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-    -fx-font-size: 12.5px;
+    -fx-font-size: 13px;
     -fx-font-weight: 600;
-    -fx-text-fill: #1d1d1f;
-    -fx-padding: 11 16;
-    -fx-border-color: rgba(0, 0, 0, 0.05);
+    -fx-text-fill: #1f2328;
+    -fx-padding: 10 14;
+    -fx-border-color: #d1d9e0;
     -fx-border-width: 0 1 0 0;
     -fx-alignment: CENTER-LEFT;
 }
@@ -1754,25 +1845,25 @@
 
 .md-table-row {
     -fx-background-color: white;
-    -fx-border-color: rgba(0, 0, 0, 0.04);
+    -fx-border-color: #d8dee4;
     -fx-border-width: 0 0 1 0;
     -fx-spacing: 0;
 }
 
 .md-table-row:hover {
-    -fx-background-color: #f2f5ff;
+    -fx-background-color: #f6f8fa;
 }
 
 .md-table-row-odd {
-    -fx-background-color: #fafbfc;
+    -fx-background-color: white;
 }
 
 .md-table-row-odd:hover {
-    -fx-background-color: #f2f5ff;
+    -fx-background-color: #f6f8fa;
 }
 
 .md-table-row-last {
-    -fx-background-radius: 0 0 10 10;
+    -fx-background-radius: 0 0 6 6;
     -fx-border-width: 0;
 }
 
@@ -1781,29 +1872,29 @@
 }
 
 .md-table-row-last > .md-table-cell:first-child {
-    -fx-background-radius: 0 0 0 10;
+    -fx-background-radius: 0 0 0 6;
     -fx-background-color: white;
 }
 
 .md-table-row-last.md-table-row-odd > .md-table-cell:first-child {
-    -fx-background-color: #fafbfc;
+    -fx-background-color: white;
 }
 
 .md-table-row-last > .md-table-cell:last-child {
-    -fx-background-radius: 0 0 10 0;
+    -fx-background-radius: 0 0 6 0;
     -fx-background-color: white;
 }
 
 .md-table-row-last.md-table-row-odd > .md-table-cell:last-child {
-    -fx-background-color: #fafbfc;
+    -fx-background-color: white;
 }
 
 .md-table-cell {
     -fx-font-family: "SF Pro Text", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-    -fx-font-size: 12.5px;
-    -fx-text-fill: #38383a;
-    -fx-padding: 10 16;
-    -fx-border-color: rgba(0, 0, 0, 0.03);
+    -fx-font-size: 13px;
+    -fx-text-fill: #1f2328;
+    -fx-padding: 9 14;
+    -fx-border-color: #d1d9e0;
     -fx-border-width: 0 1 0 0;
     -fx-alignment: CENTER-LEFT;
 }

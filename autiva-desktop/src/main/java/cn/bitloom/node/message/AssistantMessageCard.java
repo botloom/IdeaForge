@@ -66,20 +66,6 @@ public class AssistantMessageCard extends MessageCard {
         });
     }
 
-    /**
-     * 带初始内容构造（用于历史消息 / 一次性输出）。
-     * content.set 触发 listener 自动渲染 Markdown。
-     */
-    public AssistantMessageCard(String initialContent, String finishReason) {
-        this();
-        if (finishReason != null) {
-            this.finishReason.set(finishReason);
-        }
-        if (initialContent != null) {
-            this.content.set(initialContent); // listener 检测到 !isStreaming() → renderMarkdown
-        }
-    }
-
     @Override
     public MessageType getMessageType() {
         return MessageType.ASSISTANT;
@@ -139,7 +125,7 @@ public class AssistantMessageCard extends MessageCard {
     }
 
     /** 判断正文是否为空（供外部决定是否移除空卡）。 */
-    public boolean isValid() {
+    public boolean isEmpty() {
         String c = content.get();
         return c == null || c.isBlank();
     }
@@ -156,6 +142,7 @@ public class AssistantMessageCard extends MessageCard {
         if (!previous.isBlank()) {
             accumulator.append("\n\n");
         }
+        finishReason.set(null);
         isStreamingActive = true;
         streaming.set(true);
         initStreamingContainer();

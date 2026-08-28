@@ -212,6 +212,8 @@ public final class RecursiveSummarizationCompactionStrategy implements Compactio
 		long now = System.currentTimeMillis();
 		Map<String, Object> summaryMetadata = new HashMap<>();
 		summaryMetadata.put(MessageEvent.METADATA_SYNTHETIC, true);
+		// 影子轮次标记：历史加载时据此跳过渲染（区别于续轮/通知类 synthetic）
+		summaryMetadata.put(MessageEvent.METADATA_COMPACTION_SHADOW, true);
 		List<MessageEvent> summaryTurn = List.of(
 				MessageEvent.builder()
 					.sessionId(sessionId)

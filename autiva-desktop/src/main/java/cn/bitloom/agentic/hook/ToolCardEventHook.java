@@ -5,34 +5,27 @@ import cn.bitloom.agentic.event.UICardEvent;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.chat.model.ToolContext;
 
-import java.util.ArrayDeque;
 import java.util.Deque;
-import java.util.Set;
 import java.util.UUID;
-import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentLinkedDeque;
 
 /**
- * 特殊工具的展示卡片监听 Hook。
+ * 工具调用展示卡片监听 Hook。
  * <p>
- * 拦截 Read/Write/Edit/Command 工具的调用，通过 {@link EventPublisher}（ToolContext 中注入的事件源）
+ * 对所有工具调用，通过 {@link EventPublisher}（ToolContext 中注入的事件源）
  * 发布 {@link UICardEvent}（{@code TOOL_CARD}）到 agent 事件流：
  * <ul>
  *   <li>{@code beforeToolCall} → {@code CREATED}：工具开始，携带入参明细</li>
  *   <li>{@code afterToolCall} → {@code COMPLETED}/{@code FAILED}：工具结束，仅标记状态（不含结果）</li>
  * </ul>
- * 由 ViewModel 消费这些事件渲染每张工具调用独立的 ToolCallCard。
+ * ViewModel 消费 CREATED 事件分隔当前思考段（finishStreamingText），
+ * 并按工具名决定是否为 Read/Write/Edit/Command 渲染 ToolCallCard。
  * <p>
  * ToolContext 中已由 {@code Agent.runStream} 注入 {@code eventSink} 与 {@code sessionId}。
  * 被权限 Hook 拦截的工具不会走到 {@code afterToolCall}，因此不补发完成事件（卡片保持进行中，可接受）。
  */
 @Slf4j
 public class ToolCardEventHook implements IAgentHook {
-
-    /** 需要做展示卡片的特殊工具集合。Task 纳入其中以触发 UICardEvent 结束当前流式话语、
-     *  TodoWrite 同理（调用前若有 AI 文本，需闭合该 assistant 冒泡，避免其后的新文本被追加到
-     *  上方旧冒泡）；Task 自身由 TaskCard、TodoWrite 由 TodoCard 展示，均不参与 ToolCallCard 组。 */
-    private static final Set<String> CARDED_TOOLS = Set.of("Read", "Write", "Edit", "Command", "Task", "TodoWrite");
 
     /** 每 session 按 FIFO 记录待完成的工具 callId，与 afterToolCall 配对 */
     private final Deque<String> pendingCallIds = new ConcurrentLinkedDeque<>();
@@ -49,9 +42,8 @@ public class ToolCardEventHook implements IAgentHook {
 
     @Override
     public ToolCallDecision beforeToolCall(String toolName, String input, ToolContext context) {
-        if (!CARDED_TOOLS.contains(toolName)) {
-            return ToolCallDecision.proceed(input);
-        }
+        // 所有工具都发布 CREATED：ViewModel 借此分隔当前思考段（finishStreamingText），
+        // 避免“思考→工具→思考”中下一段思考覆盖上一段；是否展示工具组卡由 ViewModel 按 toolName 决定
         String sessionId = extractString(context, "sessionId");
         EventPublisher sink = extractEventSink(context);
         if (sink == null || sessionId == null) {
@@ -69,9 +61,6 @@ public class ToolCardEventHook implements IAgentHook {
 
     @Override
     public String afterToolCall(String toolName, String result, ToolContext context) {
-        if (!CARDED_TOOLS.contains(toolName)) {
-            return result;
-        }
         String sessionId = extractString(context, "sessionId");
         EventPublisher sink = extractEventSink(context);
         if (sink == null || sessionId == null) {

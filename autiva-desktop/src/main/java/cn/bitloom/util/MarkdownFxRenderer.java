@@ -1,24 +1,36 @@
 package cn.bitloom.util;
 
 import javafx.animation.PauseTransition;
+import javafx.geometry.Insets;
+import javafx.geometry.Pos;
 import javafx.scene.Node;
+import javafx.scene.control.CheckBox;
 import javafx.scene.control.Hyperlink;
 import javafx.scene.control.Label;
 import javafx.scene.control.ScrollPane;
-import javafx.scene.control.Separator;
 import javafx.scene.input.Clipboard;
 import javafx.scene.input.ClipboardContent;
+import javafx.scene.layout.Background;
+import javafx.scene.layout.BackgroundFill;
+import javafx.scene.layout.CornerRadii;
 import javafx.scene.layout.HBox;
+import javafx.scene.paint.Color;
 import javafx.scene.layout.Priority;
 import javafx.scene.layout.Region;
+import javafx.scene.layout.StackPane;
 import javafx.scene.layout.VBox;
 import javafx.scene.text.*;
 import javafx.scene.text.Font;
 import javafx.scene.text.Text;
 import javafx.util.Duration;
 import lombok.extern.slf4j.Slf4j;
+import org.commonmark.ext.autolink.AutolinkExtension;
+import org.commonmark.ext.gfm.strikethrough.Strikethrough;
+import org.commonmark.ext.gfm.strikethrough.StrikethroughExtension;
 import org.commonmark.ext.gfm.tables.TableCell;
 import org.commonmark.ext.gfm.tables.TableRow;
+import org.commonmark.ext.task.list.items.TaskListItemMarker;
+import org.commonmark.ext.task.list.items.TaskListItemsExtension;
 import org.commonmark.node.*;
 import org.commonmark.node.Image;
 
@@ -58,7 +70,10 @@ public class MarkdownFxRenderer {
 
     private static final org.commonmark.parser.Parser PARSER = org.commonmark.parser.Parser.builder()
         .extensions(java.util.List.of(
-            org.commonmark.ext.gfm.tables.TablesExtension.create()
+            org.commonmark.ext.gfm.tables.TablesExtension.create(),
+            StrikethroughExtension.create(),
+            TaskListItemsExtension.create(),
+            AutolinkExtension.create()
         ))
         .build();
 
@@ -135,12 +150,16 @@ public class MarkdownFxRenderer {
     }
 
     private static Node renderBlock(org.commonmark.node.Node block) {
+        return renderBlock(block, 0);
+    }
+
+    private static Node renderBlock(org.commonmark.node.Node block, int depth) {
         if (block instanceof Paragraph) return renderParagraph((Paragraph) block);
         if (block instanceof Heading) return renderHeading((Heading) block);
         if (block instanceof FencedCodeBlock) return renderFencedCodeBlock((FencedCodeBlock) block);
         if (block instanceof IndentedCodeBlock) return renderIndentedCodeBlock((IndentedCodeBlock) block);
-        if (block instanceof BulletList) return renderBulletList((BulletList) block);
-        if (block instanceof OrderedList) return renderOrderedList((OrderedList) block);
+        if (block instanceof BulletList) return renderBulletList((BulletList) block, depth);
+        if (block instanceof OrderedList) return renderOrderedList((OrderedList) block, depth);
         if (block instanceof BlockQuote) return renderBlockQuote((BlockQuote) block);
         if (block instanceof ThematicBreak) return renderThematicBreak();
         if (block instanceof HtmlBlock) return renderHtmlBlock((HtmlBlock) block);
@@ -152,9 +171,28 @@ public class MarkdownFxRenderer {
         TextFlow textFlow = new TextFlow();
         textFlow.getStyleClass().add("md-paragraph");
         textFlow.setMaxWidth(Double.MAX_VALUE);
-        renderInlines(paragraph, textFlow, FontWeight.NORMAL, BASE_FONT_SIZE);
+        renderInlines(paragraph, textFlow, NORMAL_FORMAT, BASE_FONT_SIZE);
         return textFlow;
     }
+
+    /**
+     * 内联文本格式（字重/斜体/删除线可组合嵌套，如 **_~~text~~**）。
+     */
+    private record InlineFormat(FontWeight weight, FontPosture posture, boolean strike) {
+        InlineFormat bold() {
+            return new InlineFormat(FontWeight.BOLD, posture, strike);
+        }
+
+        InlineFormat italic() {
+            return new InlineFormat(weight, FontPosture.ITALIC, strike);
+        }
+
+        InlineFormat struck() {
+            return new InlineFormat(weight, posture, true);
+        }
+    }
+
+    private static final InlineFormat NORMAL_FORMAT = new InlineFormat(FontWeight.NORMAL, FontPosture.REGULAR, false);
 
     private static Node renderHeading(Heading heading) {
         TextFlow textFlow = new TextFlow();
@@ -175,9 +213,7 @@ public class MarkdownFxRenderer {
         while (child != null) {
             if (child instanceof org.commonmark.node.Text textNode) {
                 textFlow.getChildren().add(new Text(textNode.getLiteral()));
-            } else if (child instanceof StrongEmphasis) {
-                renderHeadingInlines(child, textFlow);
-            } else if (child instanceof Emphasis) {
+            } else if (child instanceof StrongEmphasis || child instanceof Emphasis || child instanceof Strikethrough) {
                 renderHeadingInlines(child, textFlow);
             } else if (child instanceof Code codeNode) {
                 Label codeLabel = new Label(codeNode.getLiteral());
@@ -206,7 +242,7 @@ public class MarkdownFxRenderer {
         HBox header = new HBox();
         header.getStyleClass().add("md-code-header");
         if (info != null && !info.isBlank()) {
-            Label langLabel = new Label(info);
+            Label langLabel = new Label(info.toUpperCase());
             langLabel.getStyleClass().add("md-code-lang");
             header.getChildren().add(langLabel);
         }
@@ -254,27 +290,36 @@ public class MarkdownFxRenderer {
         return container;
     }
 
-    private static Node renderBulletList(BulletList list) {
+    private static final String[] BULLET_MARKERS = {"•", "◦", "▪"};
+
+    private static Node renderBulletList(BulletList list, int depth) {
         VBox container = new VBox(2);
         container.getStyleClass().add("md-list");
+        if (depth > 0) {
+            container.getStyleClass().add("md-list--nested");
+        }
         org.commonmark.node.Node child = list.getFirstChild();
         while (child != null) {
             if (child instanceof ListItem) {
-                container.getChildren().add(renderListItem((ListItem) child, "•"));
+                String marker = BULLET_MARKERS[Math.min(depth, BULLET_MARKERS.length - 1)];
+                container.getChildren().add(renderListItem((ListItem) child, marker, depth));
             }
             child = child.getNext();
         }
         return container;
     }
 
-    private static Node renderOrderedList(OrderedList list) {
+    private static Node renderOrderedList(OrderedList list, int depth) {
         VBox container = new VBox(2);
         container.getStyleClass().add("md-list");
+        if (depth > 0) {
+            container.getStyleClass().add("md-list--nested");
+        }
         int index = list.getStartNumber();
         org.commonmark.node.Node child = list.getFirstChild();
         while (child != null) {
             if (child instanceof ListItem) {
-                container.getChildren().add(renderListItem((ListItem) child, index + "."));
+                container.getChildren().add(renderListItem((ListItem) child, index + ".", depth));
                 index++;
             }
             child = child.getNext();
@@ -282,18 +327,41 @@ public class MarkdownFxRenderer {
         return container;
     }
 
-    private static Node renderListItem(ListItem item, String marker) {
-        HBox hbox = new HBox(4);
+    private static Node renderListItem(ListItem item, String marker, int depth) {
+        HBox hbox = new HBox(6);
         hbox.getStyleClass().add("md-list-item");
-        Text markerText = new Text(marker);
-        markerText.setFont(Font.font(FONT_FAMILY, BASE_FONT_SIZE));
-        markerText.getStyleClass().add("md-list-marker");
-        hbox.getChildren().add(markerText);
 
-        VBox content = new VBox(2);
-        org.commonmark.node.Node child = item.getFirstChild();
+        StackPane markerBox = new StackPane();
+        markerBox.getStyleClass().add("md-list-marker-box");
+        markerBox.setMinWidth(18);
+        markerBox.setPrefWidth(18);
+        markerBox.setAlignment(Pos.TOP_LEFT);
+
+        // 任务列表条目：ListItem 的第一个子节点是 TaskListItemMarker
+        TaskListItemMarker taskMarker = item.getFirstChild() instanceof TaskListItemMarker m ? m : null;
+
+        if (taskMarker != null) {
+            CheckBox checkBox = new CheckBox();
+            checkBox.getStyleClass().add("md-task-checkbox");
+            checkBox.setSelected(taskMarker.isChecked());
+            checkBox.setMouseTransparent(true);
+            markerBox.getChildren().add(checkBox);
+        } else {
+            Text markerText = new Text(marker);
+            markerText.setFont(Font.font(FONT_FAMILY, BASE_FONT_SIZE));
+            markerText.getStyleClass().add("md-list-marker");
+            markerBox.getChildren().add(markerText);
+        }
+        hbox.getChildren().add(markerBox);
+
+        VBox content = new VBox(4);
+        content.getStyleClass().add("md-list-item-content");
+        if (taskMarker != null && taskMarker.isChecked()) {
+            content.getStyleClass().add("md-task-content--done");
+        }
+        org.commonmark.node.Node child = taskMarker != null ? taskMarker.getNext() : item.getFirstChild();
         while (child != null) {
-            Node fxNode = renderBlock(child);
+            Node fxNode = renderBlock(child, depth + 1);
             if (fxNode != null) {
                 content.getChildren().add(fxNode);
             }
@@ -328,9 +396,20 @@ public class MarkdownFxRenderer {
     }
 
     private static Node renderThematicBreak() {
-        Separator separator = new Separator();
-        separator.getStyleClass().add("md-thematic-break");
-        return separator;
+        // 分割线：1px 线 + 上下留白全部用代码控制（Separator 与 CSS padding 在
+        // 虚拟流容器中不可靠，会导致紧贴上下文字）
+        Region line = new Region();
+        line.setBackground(new Background(new BackgroundFill(Color.web("#d1d9e0"), CornerRadii.EMPTY, Insets.EMPTY)));
+        line.setMinHeight(1);
+        line.setPrefHeight(1);
+        line.setMaxHeight(1);
+        line.setMaxWidth(Double.MAX_VALUE);
+
+        VBox wrapper = new VBox(line);
+        wrapper.setPadding(new Insets(16, 0, 16, 0));
+        wrapper.setFillWidth(true);
+        wrapper.setMaxWidth(Double.MAX_VALUE);
+        return wrapper;
     }
 
     private static Node renderHtmlBlock(HtmlBlock htmlBlock) {
@@ -342,23 +421,28 @@ public class MarkdownFxRenderer {
         return textFlow;
     }
 
-    private static void renderInlines(org.commonmark.node.Node parent, TextFlow textFlow, FontWeight fontWeight, double fontSize) {
+    private static void renderInlines(org.commonmark.node.Node parent, TextFlow textFlow, InlineFormat fmt, double fontSize) {
         org.commonmark.node.Node child = parent.getFirstChild();
         while (child != null) {
-            renderInline(child, textFlow, fontWeight, fontSize);
+            renderInline(child, textFlow, fmt, fontSize);
             child = child.getNext();
         }
     }
 
-    private static void renderInline(org.commonmark.node.Node inline, TextFlow textFlow, FontWeight fontWeight, double fontSize) {
+    private static void renderInline(org.commonmark.node.Node inline, TextFlow textFlow, InlineFormat fmt, double fontSize) {
         if (inline instanceof org.commonmark.node.Text textNode) {
             Text text = new Text(textNode.getLiteral());
-            text.setFont(Font.font(FONT_FAMILY, fontWeight, FontPosture.REGULAR, fontSize));
+            text.setFont(Font.font(FONT_FAMILY, fmt.weight(), fmt.posture(), fontSize));
+            if (fmt.strike()) {
+                text.getStyleClass().add("md-strikethrough");
+            }
             textFlow.getChildren().add(text);
         } else if (inline instanceof StrongEmphasis) {
-            renderInlines(inline, textFlow, FontWeight.BOLD, fontSize);
+            renderInlines(inline, textFlow, fmt.bold(), fontSize);
         } else if (inline instanceof Emphasis) {
-            renderInlines(inline, textFlow, fontWeight, FontPosture.ITALIC, fontSize);
+            renderInlines(inline, textFlow, fmt.italic(), fontSize);
+        } else if (inline instanceof Strikethrough) {
+            renderInlines(inline, textFlow, fmt.struck(), fontSize);
         } else if (inline instanceof Code codeNode) {
             Label codeLabel = new Label(codeNode.getLiteral());
             codeLabel.getStyleClass().add("md-inline-code");
@@ -372,39 +456,26 @@ public class MarkdownFxRenderer {
             hyperlink.setOnAction(e -> openLink(dest));
             textFlow.getChildren().add(hyperlink);
         } else if (inline instanceof Image img) {
-            Text altText = new Text(img.getTitle() != null ? img.getTitle() : "🖼");
-            altText.setFont(Font.font(FONT_FAMILY, fontWeight, fontSize));
-            textFlow.getChildren().add(altText);
-        } else if (inline instanceof SoftLineBreak) {
-            textFlow.getChildren().add(new Text("\n"));
-        } else if (inline instanceof HardLineBreak) {
+            String alt = extractNodeText(img);
+            Hyperlink imgLink = new Hyperlink();
+            imgLink.getStyleClass().add("md-link");
+            imgLink.setFocusTraversable(false);
+            imgLink.setText(alt != null && !alt.isBlank() ? alt : "图片链接");
+            String dest = img.getDestination();
+            imgLink.setOnAction(e -> openLink(dest));
+            textFlow.getChildren().add(imgLink);
+        } else if (inline instanceof SoftLineBreak || inline instanceof HardLineBreak) {
             textFlow.getChildren().add(new Text("\n"));
         } else if (inline instanceof HtmlInline htmlInline) {
-            Text text = new Text(htmlInline.getLiteral());
-            text.setFont(Font.font(CODE_FONT_FAMILY, 12));
-            textFlow.getChildren().add(text);
-        }
-    }
-
-    private static void renderInlines(org.commonmark.node.Node parent, TextFlow textFlow, FontWeight fontWeight, FontPosture posture, double fontSize) {
-        org.commonmark.node.Node child = parent.getFirstChild();
-        while (child != null) {
-            if (child instanceof org.commonmark.node.Text textNode) {
-                Text text = new Text(textNode.getLiteral());
-                text.setFont(Font.font(FONT_FAMILY, fontWeight, posture, fontSize));
-                textFlow.getChildren().add(text);
-            } else if (child instanceof StrongEmphasis) {
-                renderInlines(child, textFlow, FontWeight.BOLD, posture, fontSize);
-            } else if (child instanceof Emphasis) {
-                renderInlines(child, textFlow, fontWeight, FontPosture.ITALIC, fontSize);
-            } else if (child instanceof Code codeNode) {
-                Label codeLabel = new Label(codeNode.getLiteral());
-                codeLabel.getStyleClass().add("md-inline-code");
-                textFlow.getChildren().add(codeLabel);
+            String literal = htmlInline.getLiteral();
+            if (literal != null && literal.toLowerCase().matches("<br\\s*/?>")) {
+                textFlow.getChildren().add(new Text("\n"));
             } else {
-                renderInline(child, textFlow, fontWeight, fontSize);
+                Text text = new Text(literal);
+                text.setFont(Font.font(CODE_FONT_FAMILY, CODE_FONT_SIZE - 1));
+                text.getStyleClass().add("md-html-inline");
+                textFlow.getChildren().add(text);
             }
-            child = child.getNext();
         }
     }
 

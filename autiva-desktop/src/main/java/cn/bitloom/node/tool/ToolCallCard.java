@@ -71,9 +71,15 @@ public class ToolCallCard extends VBox {
         title.getStyleClass().add("tool-call-card__title");
         title.setWrapText(true);
 
+        SvgImageView toolIcon = new SvgImageView();
+        toolIcon.setFitWidth(14);
+        toolIcon.setFitHeight(14);
+        toolIcon.setSvgPath("/cn/bitloom/images/tool.svg");
+        toolIcon.setStrokeColor("#86868b");
+
         chevron = new ChevronNode();
 
-        header.getChildren().addAll(title, chevron);
+        header.getChildren().addAll(toolIcon, title, chevron);
 
         // ===== 明细容器（展开态）：按类型分组的树形明细 =====
         details = new VBox(2);
@@ -104,54 +110,21 @@ public class ToolCallCard extends VBox {
         notifyContentChanged();
     }
 
-    /** 幂等重建明细区：按类型固定顺序分组，每组为「分组头 + 竖线引导的明细列表」。 */
+    /** 幂等重建明细区：去掉类型分组与条目 icon，直接按调用顺序平铺文件/命令。 */
     private void rebuildDetails() {
         details.getChildren().clear();
-        for (Type type : Type.values()) {
-            if (counts[type.ordinal()] == 0) {
+        for (ToolEntry entry : entries) {
+            Region node = buildEntryNode(entry.type(), entry.arguments());
+            if (node == null) {
                 continue;
             }
-            VBox group = new VBox(2);
-            group.getStyleClass().add("tool-call-card__group");
-            group.getChildren().add(buildGroupHeader(type, counts[type.ordinal()]));
-
-            VBox groupEntries = new VBox(2);
-            groupEntries.getStyleClass().add("tool-call-card__entries");
-            for (ToolEntry entry : entries) {
-                if (entry.type() != type) {
-                    continue;
-                }
-                Node node = buildEntryNode(type, entry.arguments());
-                if (node != null) {
-                    groupEntries.getChildren().add(node);
-                }
-            }
-            group.getChildren().add(groupEntries);
-            details.getChildren().add(group);
+            node.setMaxWidth(Double.MAX_VALUE);
+            details.getChildren().add(node);
         }
     }
 
-    /** 分组头：类型 icon + 「已读取 N 个文件」。 */
-    private HBox buildGroupHeader(Type type, int count) {
-        HBox header = new HBox(6);
-        header.getStyleClass().add("tool-call-card__group-header");
-        header.setAlignment(Pos.CENTER_LEFT);
-
-        SvgImageView icon = new SvgImageView();
-        icon.setFitWidth(12);
-        icon.setFitHeight(12);
-        icon.setSvgPath(type.iconPath);
-        icon.setStrokeColor(type.color);
-
-        Label label = new Label(type.stat(count));
-        label.getStyleClass().add("tool-call-card__group-title");
-
-        header.getChildren().addAll(icon, label);
-        return header;
-    }
-
     /** 单条明细：文件类为可点击文件名链接；命令为等宽文本。 */
-    private Node buildEntryNode(Type type, String arguments) {
+    private Region buildEntryNode(Type type, String arguments) {
         switch (type) {
             case READ, WRITE, EDIT -> {
                 String filePath = JsonUtils.extractString(arguments, "filePath", "file_path");
@@ -167,10 +140,15 @@ public class ToolCallCard extends VBox {
                 if (command == null || command.isBlank()) {
                     return null;
                 }
-                Label label = new Label(command);
-                label.setWrapText(true);
-                label.getStyleClass().add("tool-call-card__command");
-                return label;
+                // 命令放入 bash 围栏代码块展示（md-code-block 带语言头与复制按钮）；
+                // 含三反引号会破坏围栏结构，退回等宽纯文本
+                if (command.contains("```")) {
+                    Label label = new Label(command);
+                    label.setWrapText(true);
+                    label.getStyleClass().add("tool-call-card__command");
+                    return label;
+                }
+                return renderMarkdown("```bash\n" + command + "\n```");
             }
             default -> { return null; }
         }
@@ -189,6 +167,13 @@ public class ToolCallCard extends VBox {
      */
     public void collapseNow() {
         setCollapsed(true);
+    }
+
+    /**
+     * 展开卡片明细（供 ViewModel 在工具 CREATED 时调用，流式输出中新工具组默认展开）。
+     */
+    public void expandNow() {
+        setCollapsed(false);
     }
 
     /** 设置卡片折叠状态：true=折叠（只显示标题总结）；false=展开（显示树形明细）。 */
@@ -270,19 +255,15 @@ public class ToolCallCard extends VBox {
     }
 
     private enum Type {
-        READ("已读取 %d 个文件", "/cn/bitloom/images/file-text.svg", "#0b63d8"),
-        WRITE("已写入 %d 个文件", "/cn/bitloom/images/file-new.svg", "#1f9a47"),
-        EDIT("已修改 %d 个文件", "/cn/bitloom/images/diff.svg", "#d97e04"),
-        COMMAND("已执行 %d 个命令", "/cn/bitloom/images/code.svg", "#5b57cf");
+        READ("已读取 %d 个文件"),
+        WRITE("已写入 %d 个文件"),
+        EDIT("已修改 %d 个文件"),
+        COMMAND("已执行 %d 个命令");
 
         final String statFmt;
-        final String iconPath;
-        final String color;
 
-        Type(String statFmt, String iconPath, String color) {
+        Type(String statFmt) {
             this.statFmt = statFmt;
-            this.iconPath = iconPath;
-            this.color = color;
         }
 
         String stat(int n) {

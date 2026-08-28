@@ -7,6 +7,7 @@ import cn.bitloom.holder.PageHolder;
 import cn.bitloom.node.AutoResizeTextArea;
 import cn.bitloom.node.message.*;
 import cn.bitloom.node.tool.TaskCard;
+import cn.bitloom.node.tool.ToolCallCard;
 
 import cn.bitloom.store.Store;
 import cn.bitloom.vm.AbstractHomePageViewModel;
@@ -457,6 +458,10 @@ public abstract class AbstractHomePageController implements Initializable, Butto
         if (card instanceof AssistantMessageCard assistantCard) {
             assistantCard.setOnContentChanged(c -> onCardContentChanged());
         }
+        if (card instanceof ReasoningProcessCard processCard) {
+            // 容器折叠/展开及内部子块（思考段/工具组）内容变化时同步滚动到底部
+            processCard.setOnContentChanged(c -> onCardContentChanged());
+        }
 
         return createMessageRow(card, card.getMessageType());
     }
@@ -490,6 +495,10 @@ public abstract class AbstractHomePageController implements Initializable, Butto
                     // AI 侧节点卡片（工具组等）占满整个可用区域，无宽度限制
                     region.maxWidthProperty().unbind();
                     region.setMaxWidth(Double.MAX_VALUE);
+                }
+                if (node instanceof ToolCallCard toolCallCard) {
+                    // 工具组卡片展开/折叠/追加条目高度变化时，同步滚动到底部
+                    toolCallCard.setOnContentChanged(c -> onCardContentChanged());
                 }
                 container.getChildren().add(node);
             } else {

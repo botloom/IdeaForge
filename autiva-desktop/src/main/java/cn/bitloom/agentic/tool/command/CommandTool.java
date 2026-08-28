@@ -48,8 +48,6 @@ public class CommandTool extends AbstractTool<CommandTool.Input> {
 
     @Override
     public @NonNull ToolResult execute(Input input, @Nullable ToolContext context) {
-        log.info("[CommandTool] execute called: command='{}', description='{}', timeout={}, run_in_background={}, reuse_prompt={}",
-                input.command(), input.description(), input.timeout(), input.run_in_background(), input.reuse_prompt());
 
         if (input.command() == null || input.command().isEmpty()) {
             log.warn("[CommandTool] command is empty");

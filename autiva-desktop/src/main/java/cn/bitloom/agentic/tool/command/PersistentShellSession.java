@@ -114,12 +114,9 @@ public class PersistentShellSession implements Closeable {
         String wrapped = shellExecutor.isWindows()
                 ? "@echo off\r\n" + cdCmd + "\r\necho " + markerId
                 : cdCmd + " ; echo '" + markerId + "'";
-        log.debug("[PersistentShell] restoreCwd: writing='{}'", wrapped);
         try {
             stdin.write((wrapped + "\n").getBytes(StandardCharsets.UTF_8));
             stdin.flush();
-            String drain = readUntilMarker(markerId, 5_000L);
-            log.debug("[PersistentShell] restoreCwd: drained {} bytes, cwd restored to {}", drain.length(), cwd);
         } catch (IOException e) {
             log.warn("[PersistentShell] restoreCwd failed: {}", e.getMessage());
             alive = false;
