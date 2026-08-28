@@ -670,6 +670,14 @@ public class MarkdownFxRenderer {
         }
         
         String[] lines = code.split("\n", -1);
+        // 超长代码块降级：整块单 Text（跳过逐词高亮），避免海量节点拖慢滚动
+        if (lines.length > 300) {
+            Text text = new Text(code);
+            text.setFont(Font.font(CODE_FONT_FAMILY, CODE_FONT_SIZE));
+            text.getStyleClass().add("md-code-text");
+            texts.add(text);
+            return texts;
+        }
         for (int i = 0; i < lines.length; i++) {
             if (i > 0) {
                 texts.add(new Text("\n"));
@@ -679,7 +687,37 @@ public class MarkdownFxRenderer {
             texts.addAll(lineTexts);
         }
         
-        return texts;
+        return mergeAdjacentTexts(texts);
+    }
+
+    /**
+     * 合并相邻同样式（同 styleClass）的代码 Text 节点，大幅减少节点数量：
+     * 逐词/逐空格高亮会产生海量 Text，滚动时 cell 复用会反复对这些节点做 CSS + layout，
+     * 合并后节点数从 O(token 数) 降到 O(样式切换数)。
+     */
+    private static List<Text> mergeAdjacentTexts(List<Text> texts) {
+        if (texts.size() <= 1) {
+            return texts;
+        }
+        List<Text> merged = new ArrayList<>(texts.size());
+        for (Text t : texts) {
+            if (!merged.isEmpty()) {
+                Text last = merged.get(merged.size() - 1);
+                if (sameCodeStyle(last, t) && !"\n".equals(last.getText())) {
+                    last.setText(last.getText() + t.getText());
+                    continue;
+                }
+            }
+            merged.add(t);
+        }
+        return merged;
+    }
+
+    /** 代码 Text 样式比较：每个代码 Text 只带一个 md-code-* 样式类，据此判断是否可合并。 */
+    private static boolean sameCodeStyle(Text a, Text b) {
+        String ca = a.getStyleClass().isEmpty() ? "" : a.getStyleClass().get(0);
+        String cb = b.getStyleClass().isEmpty() ? "" : b.getStyleClass().get(0);
+        return ca.equals(cb);
     }
     
     private static List<Text> highlightLine(String line, String language) {

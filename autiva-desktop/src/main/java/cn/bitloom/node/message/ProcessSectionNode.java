@@ -100,8 +100,14 @@ public class ProcessSectionNode extends VBox {
 
     private void setExpanded(boolean value) {
         expanded = value;
-        content.setVisible(value);
-        content.setManaged(value);
+        // 折叠时真正卸载 content（节点离开 scene），展开时加回，降低滚动开销
+        if (value) {
+            if (!getChildren().contains(content)) {
+                getChildren().add(content);
+            }
+        } else {
+            getChildren().remove(content);
+        }
         chevron.setExpanded(value);
     }
 

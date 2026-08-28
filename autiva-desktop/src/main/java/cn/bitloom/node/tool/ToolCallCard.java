@@ -42,6 +42,7 @@ public class ToolCallCard extends VBox {
 
     private Label title;
     private VBox details;
+    private VBox content;
     private ChevronNode chevron;
     private final int[] counts = new int[Type.values().length];
     private final List<ToolEntry> entries = new ArrayList<>();
@@ -61,6 +62,7 @@ public class ToolCallCard extends VBox {
 
         VBox content = new VBox(0);
         content.getStyleClass().add("tool-call-card__content");
+        this.content = content;
 
         // ===== 标题栏（整卡点击切换折叠）：显示组内工具统计总结 =====
         HBox header = new HBox(4);
@@ -185,8 +187,13 @@ public class ToolCallCard extends VBox {
     }
 
     private void applyCollapseState() {
-        details.setVisible(!collapsed);
-        details.setManaged(!collapsed);
+        // 折叠时真正从 content 移除 details（节点离开 scene，滚动不参与挂载/CSS/layout），
+        // 展开时加回，避免折叠态仍拖累滚动性能
+        if (collapsed) {
+            content.getChildren().remove(details);
+        } else if (!content.getChildren().contains(details)) {
+            content.getChildren().add(details);
+        }
         if (chevron != null) {
             chevron.setExpanded(!collapsed);
         }

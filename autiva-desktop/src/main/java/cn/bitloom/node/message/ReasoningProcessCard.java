@@ -26,6 +26,7 @@ import java.util.function.Consumer;
 public class ReasoningProcessCard extends MessageCard {
 
     private final VBox body;
+    private final VBox section;
     private final ChevronNode chevron;
     private boolean expanded = false;
 
@@ -52,12 +53,11 @@ public class ReasoningProcessCard extends MessageCard {
         body = new VBox(8);
         body.getStyleClass().add("fold-body");
         body.setMaxWidth(Double.MAX_VALUE);
-        body.setVisible(expanded);
-        body.setManaged(expanded);
 
-        VBox section = new VBox(4);
+        section = new VBox(4);
         section.getStyleClass().add("fold-section");
-        section.getChildren().addAll(header, body);
+        // 初始折叠：body 不挂入 section（折叠即真正卸载节点，滚动时不参与 scene/layout/CSS）
+        section.getChildren().add(header);
         section.setMaxWidth(Double.MAX_VALUE);
 
         this.getStyleClass().add("chat-message");
@@ -82,8 +82,15 @@ public class ReasoningProcessCard extends MessageCard {
 
     private void setExpanded(boolean value) {
         expanded = value;
-        body.setVisible(value);
-        body.setManaged(value);
+        // 折叠时真正从 section 移除 body（节点离开 scene，滚动不再参与挂载/CSS/layout），
+        // 展开时加回。相比 setVisible/setManaged 只隐藏不卸载，能显著降低折叠态滚动开销。
+        if (value) {
+            if (!section.getChildren().contains(body)) {
+                section.getChildren().add(body);
+            }
+        } else {
+            section.getChildren().remove(body);
+        }
         chevron.setExpanded(value);
     }
 
