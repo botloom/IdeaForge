@@ -2,6 +2,7 @@ package cn.bitloom.bridge.desktop;
 
 import cn.bitloom.agentic.event.AbstractEvent;
 import cn.bitloom.agentic.event.MessageEvent;
+import cn.bitloom.agentic.event.UICardEvent;
 import cn.bitloom.node.tool.ApprovalCard;
 import cn.bitloom.node.tool.QuestionCard;
 import cn.bitloom.node.tool.TaskCard;
@@ -66,14 +67,19 @@ public class ToolUIBridge {
 
     /**
      * 处理子智能体事件（供 TaskTool 直接调用）。
-     * 若 sessionId 对应的 TaskCard 存在，将 MessageEvent 路由到卡片渲染。
+     * 若 sessionId 对应的 TaskCard 存在，将 MessageEvent / UICardEvent(TOOL_CARD)
+     * 路由到卡片渲染（与主对话一致的思考/正文/工具组状态机）。
      */
     public void processEvent(String sessionId, AbstractEvent event) {
+        TaskCard card = sessionTaskCards.get(sessionId);
+        if (card == null) {
+            return;
+        }
         if (event instanceof MessageEvent messageEvent) {
-            TaskCard card = sessionTaskCards.get(sessionId);
-            if (card != null) {
-                Platform.runLater(() -> card.processEvent(messageEvent));
-            }
+            Platform.runLater(() -> card.processEvent(messageEvent));
+        } else if (event instanceof UICardEvent uiCardEvent
+                && uiCardEvent.getType() == UICardEvent.Type.TOOL_CARD) {
+            Platform.runLater(() -> card.processUICardEvent(uiCardEvent));
         }
     }
 
@@ -262,9 +268,7 @@ public class ToolUIBridge {
         TaskCard card = this.activeTaskCards.remove(taskId);
         this.sessionTaskCards.remove(taskId);
         if (card != null) {
-            card.complete("\n错误: " + error);
-            card.setStatus("failed");
-            card.dispose();
+            card.fail(error);
         }
     }
 

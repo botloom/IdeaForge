@@ -13,6 +13,7 @@ import cn.bitloom.agentic.agent.advisor.SubagentContextAdvisor;
 import cn.bitloom.agentic.event.AbstractEvent;
 import cn.bitloom.agentic.event.CompactionEvent;
 import cn.bitloom.agentic.event.MessageEvent;
+import cn.bitloom.agentic.event.MemoryRecallEvent;
 import cn.bitloom.agentic.event.UICardEvent;
 import cn.bitloom.agentic.hook.IAgentHook;
 import cn.bitloom.agentic.hook.MemoryExtractionHook;
@@ -263,6 +264,9 @@ public abstract class AbstractHomePageViewModel {
 
         historyLoading.set(true);
         try {
+            // 召回事件持久化于同轮用户消息之前（召回 advisor 先于用户消息持久化执行），
+            // 实时渲染时它出现在用户消息之后：此处缓存到下一条用户消息渲染完成再插入，两侧时序一致
+            MemoryRecallEvent pendingRecall = null;
             for (AbstractEvent event : events) {
                 if (event instanceof CompactionEvent ce) {
                     CompactionCard card = new CompactionCard(ce.getArchivedCount(), ce.getActiveCount());
@@ -270,11 +274,15 @@ public abstract class AbstractHomePageViewModel {
                     if (currentState != null) currentState.savedMessages.add(card);
                     continue;
                 }
+                if (event instanceof MemoryRecallEvent mre) {
+                    pendingRecall = mre;
+                    continue;
+                }
                 if (!(event instanceof MessageEvent me)) {
                     continue;
                 }
-                // 压缩产生的影子轮次（shadow-prompt 用户消息 + 摘要助手消息）：
-                // 框架伪消息，不渲染。压缩的提示由 CompactionEvent → CompactionCard 负责。
+                // 压缩产生的影子轮次（shadow-prompt 用户消息 + 摘要助手消息）：框架伪消息，不渲染。
+                // 压缩的提示由 CompactionEvent → CompactionCard 负责。
                 // 其它 synthetic 事件（Goal 续轮 / 后台任务通知等系统注入）是真实发生的
                 // 轮次边界：渲染为 NotificationCard，防止其两侧的 assistant 消息被错误合并
                 // （实时流同样以 NotificationCard 渲染并隔断，两侧行为一致）。
@@ -286,7 +294,15 @@ public abstract class AbstractHomePageViewModel {
                 if (me.isToolResponse()) {
                     continue;
                 }
+                boolean isUserMessage = me.isUserMessage();
                 processMessageEvent(me, currentState, true, true);
+                if (isUserMessage && pendingRecall != null) {
+                    addMemoryRecallCard(pendingRecall.getFiles(), currentState, true);
+                    pendingRecall = null;
+                }
+            }
+            if (pendingRecall != null) {
+                addMemoryRecallCard(pendingRecall.getFiles(), currentState, true);
             }
         } finally {
             historyLoading.set(false);
@@ -567,9 +583,41 @@ public abstract class AbstractHomePageViewModel {
                     stateRef.isStreaming = false;
                     stateRef.isPaused = false;
                     // 仅当仍是 active session 时同步 Store，避免覆盖其他 session 的 UI 状态
-                    if (currentState == stateRef) {
+                    boolean active = (currentState == stateRef);
+                    if (active) {
                         Store.isStreaming.set(false);
                         Store.isPaused.set(false);
+                    }
+                    // 兜底收尾：流式输出偶发在思考/正文阶段被服务端或网络截断时，最后一个
+                    // chunk 无 finishReason（不会走 STOP/TOOL_CALLS 收尾分支），思考/正文卡
+                    // 残留悬挂。正常路径下收尾分支已置 null，此处为 no-op。
+                    boolean truncated = stateRef.currentReasoningCard != null
+                            || stateRef.currentAssistantCard != null;
+                    if (stateRef.currentReasoningCard != null) {
+                        stateRef.currentReasoningCard.finalizeSegment();
+                        stateRef.currentReasoningCard = null;
+                    }
+                    collapseReasoningProcess(stateRef);
+                    if (stateRef.currentToolGroup != null) {
+                        stateRef.currentToolGroup.collapseNow();
+                        stateRef.currentToolGroup = null;
+                    }
+                    stateRef.needNewToolGroup = true;
+                    if (stateRef.currentAssistantCard != null) {
+                        stateRef.currentAssistantCard.complete("STOP");
+                        if (stateRef.currentAssistantCard.isEmpty()) {
+                            if (active) messages.remove(stateRef.currentAssistantCard);
+                            stateRef.savedMessages.remove(stateRef.currentAssistantCard);
+                        }
+                        stateRef.currentAssistantCard = null;
+                    }
+                    // 输出被截断（有思考/正文残留却无收尾）时补一条提示，避免用户误以为卡死
+                    if (truncated) {
+                        AssistantMessageCard tip = new AssistantMessageCard();
+                        tip.appendContent("> 输出被中断了，请重新发送消息试试。");
+                        tip.complete("STOP");
+                        if (active) messages.add(tip);
+                        stateRef.savedMessages.add(tip);
                     }
                     // 状态翻转，刷新侧边栏运行状态图标
                     Store.refreshHistory.set(!Store.refreshHistory.get());
@@ -703,7 +751,22 @@ public abstract class AbstractHomePageViewModel {
             state.savedMessages.add(card);
         } else if (event instanceof UICardEvent uiCardEvent) {
             handleUICardEvent(uiCardEvent, state, isActive);
+        } else if (event instanceof MemoryRecallEvent recallEvent) {
+            addMemoryRecallCard(recallEvent.getFiles(), state, isActive);
         }
+    }
+
+    /**
+     * 渲染记忆召回事件为「参考内容」折叠卡片（默认折叠，点击展开显示召回文件名，
+     * 文件名为 Markdown 链接样式，点击打开对应记忆文件）。
+     */
+    private void addMemoryRecallCard(List<String> files, SessionRuntimeState state, boolean isActive) {
+        if (files == null || files.isEmpty()) {
+            return;
+        }
+        MemoryRecallCard card = new MemoryRecallCard(files, resolveMemoryDir().toFile());
+        if (isActive) messages.add(card);
+        state.savedMessages.add(card);
     }
 
     /**
@@ -841,6 +904,8 @@ public abstract class AbstractHomePageViewModel {
     private ReasoningCard obtainReasoningCard(SessionRuntimeState state, boolean isActive) {
         ReasoningProcessCard container = obtainReasoningProcess(state, isActive);
         ProcessSectionNode section = container.thinkingSection();
+        // 思考段流式输出中默认展开，定格（finalizeSegment）时自动折叠
+        section.expand();
         if (section.lastContent() instanceof ReasoningCard existing) {
             existing.beginNewSegment();
             return existing;

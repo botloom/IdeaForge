@@ -462,6 +462,10 @@ public abstract class AbstractHomePageController implements Initializable, Butto
             // 容器折叠/展开及内部子块（思考段/工具组）内容变化时同步滚动到底部
             processCard.setOnContentChanged(c -> onCardContentChanged());
         }
+        if (card instanceof MemoryRecallCard recallCard) {
+            // 参考内容卡片展开/折叠高度变化时同步滚动与布局刷新
+            recallCard.setOnContentChanged(c -> onCardContentChanged());
+        }
 
         return createMessageRow(card, card.getMessageType());
     }

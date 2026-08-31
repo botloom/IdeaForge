@@ -1,50 +1,51 @@
 package cn.bitloom.node.tool;
 
 import cn.bitloom.agentic.event.MessageEvent;
-import cn.bitloom.util.MarkdownFxRenderer;
+import cn.bitloom.agentic.event.UICardEvent;
+import cn.bitloom.node.ChevronNode;
+import cn.bitloom.node.message.AssistantMessageCard;
+import cn.bitloom.node.message.NotificationCard;
+import cn.bitloom.node.message.ProcessSectionNode;
+import cn.bitloom.node.message.ReasoningCard;
+import cn.bitloom.node.message.ReasoningProcessCard;
 import cn.bitloom.util.JsonUtils;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
-import javafx.animation.Animation;
-import javafx.animation.KeyFrame;
-import javafx.animation.Timeline;
 import javafx.application.Platform;
-import javafx.geometry.Insets;
 import javafx.geometry.Pos;
 import javafx.scene.Node;
 import javafx.scene.control.Label;
 import javafx.scene.layout.HBox;
-import javafx.scene.layout.Priority;
 import javafx.scene.layout.Region;
 import javafx.scene.layout.VBox;
-import javafx.scene.shape.Circle;
-import javafx.scene.text.Font;
-import javafx.scene.text.Text;
-import javafx.scene.text.TextFlow;
-import javafx.util.Duration;
 import lombok.Setter;
 
-import java.util.ArrayList;
-import java.util.List;
+import java.util.HashSet;
+import java.util.Set;
 import java.util.function.Consumer;
 
+/**
+ * 子智能体折叠层：外壳为「状态行 + 可折叠正文」，正文内以与主对话一致的组件
+ * 渲染子智能体输出（思考过程容器 / AI 正文卡 / 工具调用组卡 / Todo / 问答 / 审批），
+ * 渲染状态机与主链路（AbstractHomePageViewModel 的 assistant 状态机）同构。
+ * 子智能体分支事件（MessageEvent / UICardEvent）由 ToolUIBridge 路由到此。
+ */
 public class TaskCard extends VBox {
 
-    private static final String FONT_FAMILY = "\"SF Pro Text\", -apple-system, BlinkMacSystemFont, \"Segoe UI\", Roboto, sans-serif";
-
-    private final Label statusLabel;
     private final VBox body;
     private final VBox messagesBox;
-    private Timeline pulseTimeline;
-    private final Circle pulseDot;
+    private final ChevronNode chevron;
 
-    private final StringBuilder streamBuffer = new StringBuilder();
-    private VBox currentStreamBox = null;
-    /** 流式期间复用的 TextFlow 和 Text（避免每个 chunk 重建） */
-    private TextFlow streamingTextFlow = null;
-    private Text streamingText = null;
-    /** 节流标志：同一 FX 脉冲内多次 chunk 只调度一次 flush */
-    private boolean textUpdateScheduled = false;
+    /** 项目根目录（ToolCallCard 将相对 filePath 解析为可点击链接用） */
+    private final String projectPath;
+
+    // ===== 渲染状态机（与主链路同构，目标容器为 messagesBox） =====
+    private ReasoningProcessCard currentReasoningProcess;
+    private ReasoningCard currentReasoningCard;
+    private AssistantMessageCard currentAssistantCard;
+    private ToolCallCard currentToolGroup;
+    private boolean needNewToolGroup = true;
+    private final Set<String> activeToolCallIds = new HashSet<>();
 
     private boolean userCollapsed = false;
 
@@ -53,44 +54,25 @@ public class TaskCard extends VBox {
 
     public TaskCard(String taskJson) {
         this.getStyleClass().add("chat-message");
-        this.getStyleClass().add("chat-message--tool");
         this.getStyleClass().add("chat-message--task");
 
         JsonNode task = parseTask(taskJson);
+        this.projectPath = getString(task, "projectPath");
 
-        HBox header = new HBox(10);
-        header.getStyleClass().add("chat-message__task-header");
+        // 折叠头与「思考过程」容器（ReasoningProcessCard）样式一致：fold-title + chevron
+        HBox header = new HBox(6);
+        header.getStyleClass().add("fold-header");
         header.setAlignment(Pos.CENTER_LEFT);
 
-        pulseDot = new Circle(5);
-        pulseDot.getStyleClass().add("chat-message__task-pulse");
-        startPulseAnimation();
+        chevron = new ChevronNode();
+        chevron.setExpanded(true);
 
-        Label typeLabel = new Label(getSubagentDisplayName(getString(task, "subagentName")));
-        typeLabel.getStyleClass().add("chat-message__task-type");
+        Label title = new Label(getSubagentDisplayName(getString(task, "subagentName")) + " Agent");
+        title.getStyleClass().add("fold-title");
 
-        Label separatorLabel = new Label("·");
-        separatorLabel.getStyleClass().add("chat-message__task-separator");
-
-        Label descLabel = new Label(getString(task, "description"));
-        descLabel.getStyleClass().add("chat-message__task-desc");
-        descLabel.setWrapText(true);
-        HBox.setHgrow(descLabel, Priority.ALWAYS);
-        HBox.setMargin(descLabel, new Insets(0, 8, 0, 0));
-
-        Region spacer = new Region();
-        HBox.setHgrow(spacer, Priority.ALWAYS);
-
-        statusLabel = new Label("运行中");
-        statusLabel.getStyleClass().add("chat-message__task-status");
-        statusLabel.getStyleClass().add("chat-message__task-status--running");
-
-        header.getChildren().addAll(pulseDot, typeLabel, separatorLabel, descLabel, spacer, statusLabel);
+        header.getChildren().addAll(title, chevron);
+        header.setOnMouseClicked(e -> toggleBody());
         this.getChildren().add(header);
-
-        Region divider = new Region();
-        divider.getStyleClass().add("chat-message__task-divider");
-        this.getChildren().add(divider);
 
         body = new VBox(8);
         body.getStyleClass().add("chat-message__task-body");
@@ -106,9 +88,277 @@ public class TaskCard extends VBox {
         header.setOnMouseClicked(e -> toggleBody());
     }
 
+    // ===== 事件入口（由 ToolUIBridge 路由） =====
+
+    /**
+     * 处理子智能体 assistant 消息事件：与主链路 assistant 渲染状态机同构 ——
+     * chunk 累积（思考 → ReasoningCard、正文 → AssistantMessageCard），
+     * TOOL_CALLS 闭合正文卡，STOP 等收尾并折叠思考容器与工具组。
+     */
+    public void processEvent(MessageEvent e) {
+        if (!e.isAssistantMessage()) {
+            return;
+        }
+        String finishReason = e.getFinishReason();
+        String text = e.getText();
+        String reasoning = e.getReasoningContent();
+        boolean isChunk = finishReason == null || finishReason.isBlank() || "_UNKNOWN".equals(finishReason);
+
+        if (isChunk) {
+            // 思考流：正文流开启后到达的 reasoning 忽略（正文 chunk 会残留携带完整 reasoningContent）
+            if (reasoning != null && !reasoning.isBlank() && currentAssistantCard == null) {
+                if (currentReasoningCard == null) {
+                    currentReasoningCard = obtainReasoningCard();
+                }
+                currentReasoningCard.updateReasoning(reasoning);
+            }
+            if (currentAssistantCard == null) {
+                // 空文本 chunk（工具间 silent revision）不构成新的 AI 话语，不新建卡片
+                if (text == null || text.isBlank()) {
+                    ensureBodyVisible();
+                    notifyContentChanged();
+                    return;
+                }
+                // 正文开始：思考段定格、思考容器折叠，此后工具调用归属新的一组
+                currentAssistantCard = obtainAssistantCard();
+                if (currentReasoningCard != null) {
+                    currentReasoningCard.finalizeSegment();
+                    currentReasoningCard = null;
+                }
+                collapseReasoningProcess();
+                needNewToolGroup = true;
+            }
+            if (text != null && !text.isBlank()) {
+                currentAssistantCard.appendContent(text);
+            }
+        } else if ("TOOL_CALLS".equals(finishReason)) {
+            // 工具调用即将发生：闭合当前正文卡，思考容器保持开启，随后的工具组收进同一折叠层
+            finishStreamingText();
+        } else {
+            // 收尾：STOP / LENGTH 等结束原因
+            finishStreamingText();
+            collapseReasoningProcess();
+            if (currentToolGroup != null) {
+                currentToolGroup.collapseNow();
+                currentToolGroup = null;
+            }
+            needNewToolGroup = true;
+            if (currentAssistantCard != null) {
+                currentAssistantCard.complete(finishReason != null ? finishReason : "STOP");
+                if (currentAssistantCard.isEmpty()) {
+                    messagesBox.getChildren().remove(currentAssistantCard);
+                }
+                currentAssistantCard = null;
+            }
+        }
+        ensureBodyVisible();
+        notifyContentChanged();
+    }
+
+    /**
+     * 处理子智能体工具卡片事件（UICardEvent TOOL_CARD，由 ToolCardEventHook 发布）：
+     * CREATED 闭合正文卡并把调用加入工具组（同一轮话语的连续工具聚合为一组），
+     * COMPLETED/FAILED 在组内调用全部结束时折叠。
+     */
+    public void processUICardEvent(UICardEvent event) {
+        if (event.getType() != UICardEvent.Type.TOOL_CARD) {
+            return;
+        }
+        switch (event.getStatus()) {
+            case CREATED -> handleToolCallCreated(event.getCardId(), event.getToolName(), event.getCardJson());
+            case COMPLETED, FAILED -> handleToolCallFinished(event.getCardId(), event.getToolName());
+            default -> { }
+        }
+        ensureBodyVisible();
+        notifyContentChanged();
+    }
+
+    private void handleToolCallCreated(String callId, String toolName, String arguments) {
+        // 任何工具执行前先闭合当前流式正文/思考，工具结束后的新 AI 文本新起一个冒泡
+        finishStreamingText();
+        if ("Task".equals(toolName) || "TodoWrite".equals(toolName)) {
+            // 独立渲染（TodoCard / 嵌套 TaskCard），不参与工具组
+            return;
+        }
+        if (!isCardedTool(toolName)) {
+            // 非展示工具：仅借 CREATED 事件分隔思考段，不创建工具组卡
+            return;
+        }
+        if (callId != null) {
+            activeToolCallIds.add(callId);
+        }
+        ToolCallCard group = currentToolGroup;
+        if (group == null || needNewToolGroup) {
+            group = obtainToolGroup();
+            group.expandNow();
+        }
+        group.addToolCall(toolName, arguments);
+        group.markRunning();
+    }
+
+    private void handleToolCallFinished(String callId, String toolName) {
+        if (!isCardedTool(toolName)) {
+            return;
+        }
+        if (callId != null) {
+            activeToolCallIds.remove(callId);
+        }
+        if (currentToolGroup != null && activeToolCallIds.isEmpty()) {
+            currentToolGroup.collapseNow();
+        }
+    }
+
+    /** 展示工具组卡片的工具，与主链路判定一致。其余工具仅用于分隔思考段。 */
+    private static boolean isCardedTool(String toolName) {
+        return switch (toolName) {
+            case "Read", "Write", "Edit", "Command" -> true;
+            default -> false;
+        };
+    }
+
+    // ===== 卡片获取与合并（与主链路 obtainXxx 同构，目标容器为 messagesBox） =====
+
+    /**
+     * 获取「思考过程」折叠容器：未闭合则复用；messagesBox 尾部是已闭合容器则重开复用；
+     * 否则新建并展开。
+     */
+    private ReasoningProcessCard obtainReasoningProcess() {
+        if (currentReasoningProcess != null) {
+            return currentReasoningProcess;
+        }
+        if (peekLast() instanceof ReasoningProcessCard existing) {
+            existing.expand();
+            currentReasoningProcess = existing;
+            return existing;
+        }
+        ReasoningProcessCard card = new ReasoningProcessCard();
+        card.setOnContentChanged(c -> notifyContentChanged());
+        addNode(card);
+        card.expand();
+        currentReasoningProcess = card;
+        return card;
+    }
+
+    /** 折叠并闭合当前「思考过程」容器（正文开始 / 轮次结束时调用）。 */
+    private void collapseReasoningProcess() {
+        if (currentReasoningProcess != null) {
+            currentReasoningProcess.collapse();
+            currentReasoningProcess = null;
+        }
+    }
+
+    /** 获取思考子块：容器尾部二级节点是思考则复用（分段追加），否则新建。思考流式期间自动展开。 */
+    private ReasoningCard obtainReasoningCard() {
+        ReasoningProcessCard container = obtainReasoningProcess();
+        ProcessSectionNode section = container.thinkingSection();
+        section.expandContent();
+        if (section.lastContent() instanceof ReasoningCard existing) {
+            existing.beginNewSegment();
+            return existing;
+        }
+        ReasoningCard card = new ReasoningCard();
+        section.addContent(card);
+        return card;
+    }
+
+    /** 获取正文卡：messagesBox 尾部是正文卡则重开续写（reopen），否则新建。 */
+    private AssistantMessageCard obtainAssistantCard() {
+        if (peekLast() instanceof AssistantMessageCard existing) {
+            existing.reopen();
+            return existing;
+        }
+        AssistantMessageCard card = new AssistantMessageCard();
+        card.setOnContentChanged(c -> notifyContentChanged());
+        addNode(card);
+        return card;
+    }
+
+    /**
+     * 获取工具组卡：思考容器未闭合 → 工具组挂进容器 body；容器已闭合/不存在 →
+     * messagesBox 尾部是工具组则复用，否则新建独立挂入。
+     */
+    private ToolCallCard obtainToolGroup() {
+        if (currentReasoningProcess != null) {
+            if (!needNewToolGroup) {
+                ToolCallCard last = currentReasoningProcess.lastToolCard();
+                if (last != null) {
+                    currentToolGroup = last;
+                    return last;
+                }
+            }
+            ToolCallCard group = new ToolCallCard(projectPath);
+            group.setOnContentChanged(c -> notifyContentChanged());
+            currentToolGroup = group;
+            needNewToolGroup = false;
+            currentReasoningProcess.addToolCard(group);
+            return group;
+        }
+        if (peekLast() instanceof ToolCallCard existing) {
+            currentToolGroup = existing;
+            needNewToolGroup = false;
+            return existing;
+        }
+        ToolCallCard group = new ToolCallCard(projectPath);
+        group.setOnContentChanged(c -> notifyContentChanged());
+        currentToolGroup = group;
+        needNewToolGroup = false;
+        addNode(group);
+        return group;
+    }
+
+    /** 结束当前流式正文卡（未结束则移除空卡），思考段一并定格。 */
+    private void finishStreamingText() {
+        if (currentReasoningCard != null) {
+            currentReasoningCard.finalizeSegment();
+            currentReasoningCard = null;
+        }
+        if (currentAssistantCard == null) {
+            return;
+        }
+        AssistantMessageCard card = currentAssistantCard;
+        currentAssistantCard = null;
+        card.complete("TOOL_CALLS");
+        if (card.isEmpty()) {
+            messagesBox.getChildren().remove(card);
+        }
+    }
+
+    /** 收尾定格：闭合思考段/容器/工具组与正文卡（完成与失败共用）。 */
+    private void finalizeRendering() {
+        finishStreamingText();
+        collapseReasoningProcess();
+        if (currentToolGroup != null) {
+            currentToolGroup.collapseNow();
+            currentToolGroup = null;
+        }
+        needNewToolGroup = true;
+        if (currentAssistantCard != null) {
+            currentAssistantCard.complete("STOP");
+            if (currentAssistantCard.isEmpty()) {
+                messagesBox.getChildren().remove(currentAssistantCard);
+            }
+            currentAssistantCard = null;
+        }
+    }
+
+    private Node peekLast() {
+        var children = messagesBox.getChildren();
+        return children.isEmpty() ? null : children.get(children.size() - 1);
+    }
+
+    /** 添加节点到 messagesBox，并确保宽度跟随容器（避免内容溢出）。 */
+    private void addNode(Node node) {
+        if (node instanceof Region region) {
+            region.setMaxWidth(Double.MAX_VALUE);
+        }
+        messagesBox.getChildren().add(node);
+    }
+
+    // ===== 外壳：Todo / 问答 / 审批挂载、折叠、状态 =====
+
     public void addTodoCard(TodoCard card) {
         Platform.runLater(() -> {
-            addMessageNode(card);
+            addNode(card);
             ensureBodyVisible();
             notifyContentChanged();
         });
@@ -116,7 +366,7 @@ public class TaskCard extends VBox {
 
     public void addQuestionCard(QuestionCard card) {
         Platform.runLater(() -> {
-            addMessageNode(card);
+            addNode(card);
             ensureBodyVisible();
             notifyContentChanged();
         });
@@ -124,166 +374,15 @@ public class TaskCard extends VBox {
 
     public void addApprovalCard(ApprovalCard card) {
         Platform.runLater(() -> {
-            addMessageNode(card);
+            addNode(card);
             ensureBodyVisible();
             notifyContentChanged();
         });
     }
 
-    public void dispose() {
-        stopPulseAnimation();
-    }
-
-    public void processEvent(MessageEvent event) {
-        if (event.isAssistantMessage()) {
-            processAssistantEvent(event);
-        }
-
-        ensureBodyVisible();
-        notifyContentChanged();
-    }
-
-    private void processAssistantEvent(MessageEvent e) {
-        String finishReason = e.getFinishReason();
-        String text = e.getText();
-
-        if (finishReason == null || finishReason.isBlank() || "_UNKNOWN".equals(finishReason)) {
-            streamBuffer.append(text != null ? text : "");
-            if (streamBuffer.isEmpty()) {
-                return;
-            }
-            if (currentStreamBox == null) {
-                currentStreamBox = new VBox(4);
-                currentStreamBox.getStyleClass().add("chat-message__task-assistant");
-                addMessageNode(currentStreamBox);
-                initStreamingTextFlow(currentStreamBox);
-            }
-            scheduleFlush();
-        } else if ("STOP".equals(finishReason)) {
-            cancelPendingFlush();
-            if (currentStreamBox != null) {
-                String content = streamBuffer.toString();
-                if (!content.isBlank()) {
-                    renderStreamContent(currentStreamBox, content);
-                } else {
-                    messagesBox.getChildren().remove(currentStreamBox);
-                }
-                currentStreamBox = null;
-                streamingTextFlow = null;
-                streamingText = null;
-            } else if (text != null && !text.isBlank()) {
-                appendMarkdownNode(text);
-            }
-            streamBuffer.setLength(0);
-        } else if ("TOOL_CALLS".equals(finishReason)) {
-            cancelPendingFlush();
-            if (currentStreamBox != null) {
-                String content = streamBuffer.toString();
-                if (!content.isBlank()) {
-                    renderStreamContent(currentStreamBox, content);
-                } else {
-                    messagesBox.getChildren().remove(currentStreamBox);
-                }
-                currentStreamBox = null;
-                streamingTextFlow = null;
-                streamingText = null;
-            }
-            streamBuffer.setLength(0);
-        }
-    }
-
-    /**
-     * 初始化复用的 TextFlow 和 Text 节点，加入 container。
-     * 后续 chunk 通过 flushStreamingText 更新 streamingText.setText，不重建节点。
-     */
-    private void initStreamingTextFlow(VBox container) {
-        streamingTextFlow = new TextFlow();
-        streamingTextFlow.getStyleClass().add("md-paragraph");
-        streamingTextFlow.getStyleClass().add("chat-message__task-md-content");
-        streamingTextFlow.setMaxWidth(Double.MAX_VALUE);
-        streamingText = new Text("");
-        streamingText.setFont(Font.font(FONT_FAMILY, 13));
-        streamingTextFlow.getChildren().add(streamingText);
-        container.getChildren().add(streamingTextFlow);
-    }
-
-    /**
-     * 调度节流式 UI 更新：同一 FX 脉冲内多次 chunk 只执行一次 flush。
-     */
-    private void scheduleFlush() {
-        if (textUpdateScheduled) return;
-        textUpdateScheduled = true;
-        Platform.runLater(this::flushStreamingText);
-    }
-
-    /**
-     * 取消 pending flush（STOP/TOOL_CALLS 时调用，避免残留 flush 干扰 Markdown 渲染）。
-     */
-    private void cancelPendingFlush() {
-        textUpdateScheduled = false;
-    }
-
-    /**
-     * 执行节流式 UI 更新：更新 streamingText、请求布局、通知外部重排。
-     */
-    private void flushStreamingText() {
-        if (currentStreamBox == null || streamingText == null) {
-            textUpdateScheduled = false;
-            return;
-        }
-        textUpdateScheduled = false;
-        String full = streamBuffer.toString();
-        streamingText.setText(full);
-        notifyContentChanged();
-    }
-
-    private void renderStreamContent(VBox container, String content) {
-        container.getChildren().clear();
-        if (content == null || content.isBlank()) return;
-
-        try {
-            VBox rendered = MarkdownFxRenderer.render(content);
-            List<Node> childrenCopy = new ArrayList<>(rendered.getChildren());
-            for (Node child : childrenCopy) {
-                if (child instanceof TextFlow tf) {
-                    tf.setMaxWidth(Double.MAX_VALUE);
-                    tf.getStyleClass().add("chat-message__task-md-content");
-                } else if (child instanceof Region region) {
-                    region.setMaxWidth(Double.MAX_VALUE);
-                }
-                container.getChildren().add(child);
-            }
-        } catch (Exception e) {
-            TextFlow textFlow = new TextFlow();
-            textFlow.getStyleClass().add("chat-message__task-md-content");
-            Text text = new Text(content);
-            text.setFont(Font.font(FONT_FAMILY, 13));
-            textFlow.getChildren().add(text);
-            container.getChildren().add(textFlow);
-        }
-    }
-
-    private void appendMarkdownNode(String content) {
-        VBox mdBox = new VBox(4);
-        mdBox.getStyleClass().add("chat-message__task-assistant");
-        renderStreamContent(mdBox, content);
-        addMessageNode(mdBox);
-    }
-
-    /**
-     * 添加消息节点到 messagesBox，并确保节点宽度跟随容器宽度（避免内容溢出）。
-     */
-    private void addMessageNode(Node node) {
-        if (node instanceof Region region) {
-            region.setMaxWidth(Double.MAX_VALUE);
-        }
-        messagesBox.getChildren().add(node);
-    }
-
     private void ensureBodyVisible() {
         if (!body.isVisible() && !userCollapsed) {
-            body.setVisible(true);
-            body.setManaged(true);
+            setBodyVisible(true);
         }
     }
 
@@ -292,9 +391,14 @@ public class TaskCard extends VBox {
         if (expanded) {
             userCollapsed = true;
         }
-        body.setVisible(!expanded);
-        body.setManaged(!expanded);
+        setBodyVisible(!expanded);
         notifyContentChanged();
+    }
+
+    private void setBodyVisible(boolean visible) {
+        body.setVisible(visible);
+        body.setManaged(visible);
+        chevron.setExpanded(visible);
     }
 
     /**
@@ -302,73 +406,35 @@ public class TaskCard extends VBox {
      */
     private void collapseBody() {
         if (body.isVisible()) {
-            body.setVisible(false);
-            body.setManaged(false);
+            setBodyVisible(false);
             notifyContentChanged();
         }
     }
 
-    private void startPulseAnimation() {
-        pulseTimeline = new Timeline(
-                new KeyFrame(Duration.ZERO, e -> pulseDot.setOpacity(1.0)),
-                new KeyFrame(Duration.millis(800), e -> pulseDot.setOpacity(0.3)),
-                new KeyFrame(Duration.millis(1600), e -> pulseDot.setOpacity(1.0))
-        );
-        pulseTimeline.setCycleCount(Animation.INDEFINITE);
-        pulseTimeline.play();
-    }
-
-    private void stopPulseAnimation() {
-        if (pulseTimeline != null) {
-            pulseTimeline.stop();
-            pulseDot.setOpacity(1.0);
-        }
-    }
-
-    public void setStatus(String status) {
-        Platform.runLater(() -> doSetStatus(status));
-    }
-
-    private void doSetStatus(String status) {
-        statusLabel.getStyleClass().removeIf(s -> s.startsWith("chat-message__task-status--"));
-        statusLabel.setText(switch (status) {
-            case "completed" -> "已完成";
-            case "failed" -> "失败";
-            case "running" -> "运行中";
-            default -> status
-        ;
-        });
-        statusLabel.getStyleClass().add("chat-message__task-status--" + status);
-
-        if ("completed".equals(status) || "failed".equals(status)) {
-            stopPulseAnimation();
-            pulseDot.getStyleClass().add("chat-message__task-pulse--" + status);
-        }
-    }
-
+    /**
+     * 完成：定格收尾渲染状态机（子智能体输出已流式完整展示，工具结果不再重复渲染），
+     * 自动折叠正文，点击 header 可随时展开查看。
+     */
     public void complete(String result) {
         Platform.runLater(() -> {
-            cancelPendingFlush();
-            if (result != null && !result.isBlank()) {
-                streamBuffer.append("\n").append(result);
-            }
-            if (currentStreamBox != null && !streamBuffer.isEmpty()) {
-                renderStreamContent(currentStreamBox, streamBuffer.toString());
-                currentStreamBox = null;
-                streamingTextFlow = null;
-                streamingText = null;
-            }
-            streamBuffer.setLength(0);
-            doSetStatus("completed");
-            dispose();
-            // 输出完成后自动折叠卡片，仅保留 header（状态/标题），点击 header 可随时展开查看
+            finalizeRendering();
             collapseBody();
+        });
+    }
+
+    /** 失败：定格收尾并以系统通知样式展示错误摘要。 */
+    public void fail(String error) {
+        Platform.runLater(() -> {
+            finalizeRendering();
+            addNode(new NotificationCard("子智能体执行失败: " + (error != null ? error : "未知错误")));
+            ensureBodyVisible();
+            notifyContentChanged();
         });
     }
 
     private void notifyContentChanged() {
         if (onContentChanged != null) {
-            onContentChanged.accept(streamBuffer.toString());
+            onContentChanged.accept("");
         }
     }
 

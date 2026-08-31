@@ -604,6 +604,25 @@
     -fx-spacing: 6;
 }
 
+/* 「参考内容」折叠卡片（MemoryRecallCard，首轮记忆召回）：默认折叠，
+   展开体左侧引导竖线与工具卡明细同处 x=8 一条垂直线，文件名缩进与工具卡一致 */
+.memory-recall-card {
+    -fx-padding: 0;
+}
+
+.memory-recall-body {
+    -fx-border-color: transparent transparent transparent #d9d9de;
+    -fx-border-width: 0 0 0 1;
+    -fx-border-insets: 0 0 0 8;
+    -fx-padding: 0 0 0 13;
+    -fx-spacing: 4;
+}
+
+.memory-recall-file {
+    -fx-font-size: 12px;
+    -fx-font-family: "SF Mono", Monaco, "Cascadia Code", monospace;
+}
+
 .thinking-text {
     -fx-fill: #86868b;
 }
@@ -1156,101 +1175,26 @@
     -fx-text-fill: #1d1d1f;
 }
 
+/* 子智能体层（TaskCard）：折叠头与「思考过程」容器一致（fold-title + chevron），
+   展开正文左侧一条引导竖线（x=8），内部折叠模块与主智能体水平对齐（无额外左缩进） */
 .chat-message--task {
-    -fx-background-color: linear-gradient(to bottom right, #f8fafc, #f1f5f9);
-    -fx-border-color: #cbd5e1;
-    -fx-border-width: 1;
-    -fx-border-radius: 14;
-    -fx-background-radius: 14;
     -fx-padding: 0;
-    -fx-effect: dropshadow(gaussian, rgba(0, 0, 0, 0.06), 4, 0, 0, 2);
-}
-
-.chat-message__task-header {
-    -fx-spacing: 10;
-    -fx-padding: 12 16;
-    -fx-cursor: hand;
-    -fx-alignment: CENTER_LEFT;
-}
-
-.chat-message__task-header:hover {
-    -fx-background-color: rgba(0, 0, 0, 0.02);
-    -fx-background-radius: 14 14 0 0;
-}
-
-.chat-message__task-pulse {
-    -fx-fill: #3b82f6;
-    -fx-stroke: transparent;
-    -fx-stroke-width: 0;
-    -fx-effect: dropshadow(gaussian, rgba(59, 130, 246, 0.5), 6, 0.5, 0, 0);
-}
-
-.chat-message__task-pulse--completed {
-    -fx-fill: #22c55e;
-    -fx-effect: dropshadow(gaussian, rgba(34, 197, 94, 0.4), 4, 0.5, 0, 0);
-}
-
-.chat-message__task-pulse--failed {
-    -fx-fill: #ef4444;
-    -fx-effect: dropshadow(gaussian, rgba(239, 68, 68, 0.4), 4, 0.5, 0, 0);
-}
-
-.chat-message__task-type {
-    -fx-font-weight: bold;
-    -fx-font-size: 13px;
-    -fx-text-fill: #1e293b;
-    -fx-background-color: rgba(59, 130, 246, 0.1);
-    -fx-padding: 2 8;
-    -fx-background-radius: 6;
-}
-
-.chat-message__task-separator {
-    -fx-font-size: 14px;
-    -fx-text-fill: #94a3b8;
-}
-
-.chat-message__task-desc {
-    -fx-font-size: 13px;
-    -fx-text-fill: #475569;
-}
-
-.chat-message__task-status {
-    -fx-font-size: 11px;
-    -fx-font-weight: bold;
-    -fx-padding: 3 10;
-    -fx-background-radius: 10;
-}
-
-.chat-message__task-status--running {
-    -fx-background-color: #dbeafe;
-    -fx-text-fill: #2563eb;
-}
-
-.chat-message__task-status--completed {
-    -fx-background-color: #dcfce7;
-    -fx-text-fill: #16a34a;
-}
-
-.chat-message__task-status--failed {
-    -fx-background-color: #fee2e2;
-    -fx-text-fill: #dc2626;
-}
-
-.chat-message__task-chevron {
-    -fx-font-size: 14px;
-    -fx-text-fill: #94a3b8;
-    -fx-padding: 0 4;
-}
-
-.chat-message__task-divider {
-    -fx-pref-height: 1;
-    -fx-background-color: #e2e8f0;
-    -fx-margin: 0 16;
+    -fx-effect: null;
 }
 
 .chat-message__task-body {
-    -fx-padding: 0 12 12 12;
-    -fx-spacing: 0;
+    -fx-spacing: 6;
+    -fx-padding: 6 0 6 0;
+    -fx-border-color: #d9d9de;
+    -fx-border-width: 0 0 0 1;
+    -fx-border-insets: 0 0 0 8;
+}
+
+/* 子智能体内的 AI 正文消息以灰色卡片收纳（与思考文字同款浅灰卡片） */
+.chat-message__task-messages .chat-message--assistant {
+    -fx-background-color: #f5f5f7;
+    -fx-background-radius: 10;
+    -fx-padding: 8 12;
 }
 
 .chat-message__task-terminal-header {
@@ -1329,7 +1273,7 @@
 
 .chat-message__task-messages {
     -fx-background-color: transparent;
-    -fx-padding: 8 4;
+    -fx-padding: 8 4 8 0;
     -fx-border-color: transparent;
     -fx-border-width: 0;
 }
@@ -1406,20 +1350,6 @@
     -fx-background-color: transparent;
     -fx-shape: "";
     -fx-padding: 0;
-}
-
-.chat-message__task-assistant {
-    -fx-padding: 8 12;
-    -fx-background-color: rgba(0, 0, 0, 0.02);
-    -fx-background-radius: 8;
-    -fx-spacing: 4;
-}
-
-.chat-message__task-md-content {
-    -fx-font-size: 13px;
-    -fx-font-family: "SF Pro Text", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-    -fx-text-fill: #1e293b;
-    -fx-line-spacing: 1.5;
 }
 
 .chat-message__task-messages .chat-message--tool {
@@ -1767,6 +1697,7 @@
     -fx-border-color: #d1d9e0;
     -fx-border-width: 1;
     -fx-border-radius: 6;
+    -fx-padding: 6 0;
 }
 
 .md-table-scroll > .viewport {

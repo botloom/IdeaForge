@@ -169,7 +169,7 @@ public class SubAgentFactory {
     }
 
     /**
-     * 基础 Hook 集：预算保护 / 权限审批 / 工具结果落盘。
+     * 基础 Hook 集：预算保护 / 权限审批 / 工具结果落盘 / 工具卡片事件（供 TaskCard 展示工具调用）。
      * 每次构建 Agent 都 new 新实例（内部持有 per-session 可变状态，避免多智能体共享串扰）。
      * 注意：不挂 TodoReminderHook——子智能体未提供 TodoWrite 工具，提醒反而误导。
      */
@@ -178,6 +178,7 @@ public class SubAgentFactory {
         hooks.add(new ToolCallBudgetHook(configManager.getMaxToolCalls()));
         hooks.add(new PermissionHook(approvalStrategies));
         hooks.add(new ToolResultOffloadHook());
+        hooks.add(new cn.bitloom.agentic.hook.ToolCardEventHook());
         return hooks;
     }
 }

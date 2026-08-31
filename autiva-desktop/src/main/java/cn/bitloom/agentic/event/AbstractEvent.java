@@ -15,7 +15,8 @@ import lombok.experimental.SuperBuilder;
 @JsonSubTypes({
         @JsonSubTypes.Type(value = MessageEvent.class, name = "MESSAGE"),
         @JsonSubTypes.Type(value = UICardEvent.class, name = "UI_CARD"),
-        @JsonSubTypes.Type(value = CompactionEvent.class, name = "COMPACT")
+        @JsonSubTypes.Type(value = CompactionEvent.class, name = "COMPACT"),
+        @JsonSubTypes.Type(value = MemoryRecallEvent.class, name = "MEMORY")
 })
 public non-sealed abstract class AbstractEvent implements IEvent {
     private String sessionId;

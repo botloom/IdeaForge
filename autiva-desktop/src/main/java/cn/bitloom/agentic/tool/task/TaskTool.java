@@ -125,6 +125,7 @@ public class TaskTool extends AbstractTool<TaskTool.Input> {
             taskJson.put("subagentName", subagentName);
             taskJson.put("description", taskCall.description());
             taskJson.put("taskId", taskId);
+            taskJson.put("projectPath", projectPath);
             this.toolUIBridge.createTaskCard(parentSessionId, taskId, JsonUtils.toJson(taskJson));
         }
 

@@ -40,6 +40,7 @@ import java.net.URI;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
+import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 @Slf4j
@@ -79,6 +80,7 @@ public class MarkdownFxRenderer {
 
     private static final Pattern NUMBER_PATTERN = Pattern.compile("\\d+(\\.\\d+)?");
     private static final Pattern WORD_SPLIT_PATTERN = Pattern.compile("(?<=[\\s\\[\\]{}(),;.=+\\-*/<>!&|])|(?=[\\s\\[\\]{}(),;.=+\\-*/<>!&|])");
+    private static final Pattern ATX_NO_SPACE = Pattern.compile("^(\\s{0,3}#{1,6})(?=[^#\\s])");
 
     private static final Set<String> JAVA_KEYWORDS = Set.of(
         "public", "private", "protected", "class", "interface", "extends", "implements",
@@ -103,8 +105,9 @@ public class MarkdownFxRenderer {
 
     /**
      * 打开链接：优先用注入的 handler（如项目视图打开文件），未处理则回退到系统默认。
+     * 供卡片（如 MemoryRecallCard）直接复用，保证与 Markdown 渲染链接的打开行为一致。
      */
-    private static void openLink(String dest) {
+    public static void openLink(String dest) {
         try {
             // 优先交给注入的 handler（file:// 链接在项目视图中打开）
             LinkHandler handler = linkHandler;
@@ -133,7 +136,9 @@ public class MarkdownFxRenderer {
         if (markdown == null || markdown.isBlank()) {
             return new VBox();
         }
-        org.commonmark.node.Node document = PARSER.parse(markdown);
+        // LLM 输出常写 `##标题`（# 与文字间缺空格），CommonMark 严格模式下不识别，
+        // 先做宽容修复（跳过缩进/围栏代码块），再解析
+        org.commonmark.node.Node document = PARSER.parse(normalizeAtxHeadings(markdown));
         VBox container = new VBox(8);
         container.getStyleClass().add("md-content");
         container.setMaxWidth(Double.MAX_VALUE);
@@ -147,6 +152,29 @@ public class MarkdownFxRenderer {
             child = child.getNext();
         }
         return container;
+    }
+
+    /**
+     * 宽容修复 ATX 标题：`#{1,6}` 后紧跟非空白字符时插入一个空格，
+     * 使 `##标题` 能被识别为标题。跳过缩进代码块与围栏代码块内部。
+     */
+    private static String normalizeAtxHeadings(String markdown) {
+        String[] lines = markdown.split("\n", -1);
+        boolean inFence = false;
+        StringBuilder sb = new StringBuilder(markdown.length() + 16);
+        for (String line : lines) {
+            String stripped = line.stripLeading();
+            if (stripped.startsWith("```") || stripped.startsWith("~~~")) {
+                inFence = !inFence;
+            } else if (!inFence && !line.startsWith("    ") && !line.startsWith("\t")) {
+                Matcher m = ATX_NO_SPACE.matcher(line);
+                if (m.find()) {
+                    line = line.substring(0, m.end()) + " " + line.substring(m.end());
+                }
+            }
+            sb.append(line).append('\n');
+        }
+        return sb.toString();
     }
 
     private static Node renderBlock(org.commonmark.node.Node block) {

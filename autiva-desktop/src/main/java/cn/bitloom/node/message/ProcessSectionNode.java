@@ -15,7 +15,8 @@ import java.util.function.Consumer;
 
 /**
  * 「思考过程」容器内的二级折叠节点（思考）：自带小标题 + chevron，
- * 可独立折叠（默认展开）；思考子块挂在其 content 下（灰卡片收纳思考文字）。
+ * 可独立折叠（默认折叠：容器打开时只显示标题行，点击展开内容）；
+ * 思考子块挂在其 content 下（灰卡片收纳思考文字）。
  * <p>
  * 子块内容变化经 onContentChanged 向上转发给容器（容器再转发 Controller）。
  */
@@ -36,7 +37,8 @@ public class ProcessSectionNode extends VBox {
     private final Kind kind;
     private final VBox content = new VBox(6);
     private final ChevronNode chevron;
-    private boolean expanded = true;
+    /** 默认折叠：容器打开时只显示「思考」标题行，点击展开内容 */
+    private boolean expanded = false;
 
     /** 内容变化回调（由容器注入并向上转发）。 */
     @Setter
@@ -70,14 +72,21 @@ public class ProcessSectionNode extends VBox {
         content.getStyleClass().add("process-section__content");
         content.setMaxWidth(Double.MAX_VALUE);
 
-        this.getChildren().addAll(header, content);
+        // content 按初始折叠状态挂载：默认折叠时不加入（真正卸载，滚动零开销），
+        // 否则改默认折叠后灰卡内容仍会显示
+        this.getChildren().add(header);
+        if (expanded) {
+            this.getChildren().add(content);
+        }
     }
 
     /**
-     * 加入思考子块，并注入内容变化回调向上转发。
+     * 加入思考子块，并注入内容变化回调向上转发；
+     * 段定格回调：思考流式输出结束（finalizeSegment）时折叠本节点。
      */
     public void addContent(ReasoningCard rc) {
         rc.setOnContentChanged(c -> notifyContentChanged());
+        rc.setOnSegmentFinalized(this::collapse);
         content.getChildren().add(rc);
         notifyContentChanged();
     }
@@ -93,9 +102,26 @@ public class ProcessSectionNode extends VBox {
         return content.getChildren();
     }
 
+    /** 展开本节点内容（思考段开始流式时由 ViewModel 调用）。 */
+    public void expand() {
+        setExpanded(true);
+    }
+
+    /** 折叠本节点内容（思考段定格时由子块通知触发）。 */
+    public void collapse() {
+        setExpanded(false);
+    }
+
     private void toggle() {
         setExpanded(!expanded);
         notifyContentChanged();
+    }
+
+    /** 展开本节点内容（思考流式输出时由调用方自动展开，无需用户手动点击）。 */
+    public void expandContent() {
+        if (!expanded) {
+            setExpanded(true);
+        }
     }
 
     private void setExpanded(boolean value) {
