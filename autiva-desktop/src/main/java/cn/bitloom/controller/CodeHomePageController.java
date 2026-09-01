@@ -21,6 +21,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
 import java.io.File;
+import java.util.ArrayList;
 import java.util.List;
 
 /**
@@ -202,12 +203,13 @@ public class CodeHomePageController extends AbstractHomePageController {
                     refreshProjectMenuText(newVal);
                 });
 
-        // 批准框：显示在输入框上方的 approvalBar（不持久化到聊天历史）
-        this.toolUIBridge.setOnShowApproval(card -> {
-            approvalBar.getChildren().clear();
-            approvalBar.getChildren().add(card);
-            approvalBar.setVisible(true);
-            approvalBar.setManaged(true);
+        // 批准框：显示在输入框上方的 approvalBar（不持久化到聊天历史），按所属 session 隔离：
+        // active session 的审批立即显示，非 active 的挂起在 pendingApprovalCards，切回该 session 时恢复显示
+        this.toolUIBridge.setOnShowApproval((sessionId, card) -> {
+            pendingApprovalCards.computeIfAbsent(sessionId, _ -> new ArrayList<>()).add(card);
+            if (java.util.Objects.equals(Store.currentSessionId.get(), sessionId)) {
+                showApprovalCard(card);
+            }
         });
 
         // 计划批准卡片（Plan Mode）：同样显示在 approvalBar
@@ -246,14 +248,44 @@ public class CodeHomePageController extends AbstractHomePageController {
 
         setupSlashCommandPopup();
 
-        // 监听会话切换：清空批准框
+        // 监听会话切换：approvalBar 收起当前卡（引用保留在 pendingApprovalCards），
+        // 并恢复目标 session 的待审批卡
         Store.currentSessionId.addListener((obs, oldVal, newVal) -> {
             if (oldVal != null && !oldVal.equals(newVal)) {
-                approvalBar.getChildren().clear();
-                approvalBar.setVisible(false);
-                approvalBar.setManaged(false);
+                refreshApprovalBarForSession(newVal);
             }
         });
+    }
+
+    /** 每个 session 的待处理审批卡（含当前正在 approvalBar 显示的），仅在 FX 线程访问 */
+    private final java.util.Map<String, java.util.List<cn.bitloom.node.tool.ApprovalCard>> pendingApprovalCards =
+            new java.util.HashMap<>();
+
+    /**
+     * 把 approvalBar 内容切换为指定 session 的待审批卡：
+     * 清空当前显示（卡引用保留在其所属 session 的 pending 列表，切回时恢复），
+     * 过滤已响应/超时的死卡后显示目标 session 的全部待审批卡。
+     */
+    private void refreshApprovalBarForSession(String sessionId) {
+        java.util.List<cn.bitloom.node.tool.ApprovalCard> cards =
+                sessionId == null ? null : pendingApprovalCards.get(sessionId);
+        if (cards != null) {
+            cards.removeIf(cn.bitloom.node.tool.ApprovalCard::isDismissed);
+        }
+        approvalBar.getChildren().clear();
+        if (cards != null && !cards.isEmpty()) {
+            approvalBar.getChildren().addAll(cards);
+        }
+        boolean hasCards = !approvalBar.getChildren().isEmpty();
+        approvalBar.setVisible(hasCards);
+        approvalBar.setManaged(hasCards);
+    }
+
+    private void showApprovalCard(cn.bitloom.node.tool.ApprovalCard card) {
+        approvalBar.getChildren().clear();
+        approvalBar.getChildren().add(card);
+        approvalBar.setVisible(true);
+        approvalBar.setManaged(true);
     }
 
     @Override
@@ -515,12 +547,12 @@ public class CodeHomePageController extends AbstractHomePageController {
     }
 
     /**
-     * 切换 session 时重置编辑器面板卡片：code 模式额外重置 goal 卡片引用，
+     * session 激活时同步编辑器面板视图：code 模式额外重置 goal 卡片引用，
      * 确保只显示当前 active session 的目标闭环产物。
      */
     @Override
-    protected void clearEditorPanelCards() {
-        super.clearEditorPanelCards();
+    protected void onEditorPanelSessionChanged(String sessionId) {
+        super.onEditorPanelSessionChanged(sessionId);
         toolUIBridge.resetGoalCard();
     }
 

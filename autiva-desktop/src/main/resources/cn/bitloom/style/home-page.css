@@ -1383,6 +1383,15 @@
     -fx-padding: 6 0;
 }
 
+/* 平铺模式（思考过程容器内）：无折叠标题行，间距全部交给容器 body 的 spacing */
+.tool-call-card--flat {
+    -fx-padding: 0;
+}
+
+.tool-call-card--flat .tool-call-card__details {
+    -fx-padding: 0;
+}
+
 .tool-call-card__content {
     -fx-padding: 0;
 }
@@ -1400,13 +1409,31 @@
     -fx-font-family: "SF Pro Text", -apple-system, "Segoe UI", sans-serif;
 }
 
-/* 可折叠主体：去掉分组与条目 icon，整列一条竖线引导，文件/命令直接挂线右侧 */
+/* 可折叠主体：无贯穿线，分组头 icon 顶格，条目区用引导线 */
 .tool-call-card__details {
+    -fx-spacing: 6;
+    -fx-padding: 6 0 0 0;
+}
+
+/* 类型分组头：icon + 统计文案（如「已读取 2 个文件」） */
+.tool-call-card__group-header {
+    -fx-spacing: 6;
+    -fx-alignment: CENTER_LEFT;
+}
+
+.tool-call-card__group-title {
+    -fx-font-size: 14px;
+    -fx-text-fill: #86868b;
+    -fx-font-family: "SF Pro Text", -apple-system, "Segoe UI", sans-serif;
+}
+
+/* 组内条目容器：左侧引导线（x=5），文件名挂线右侧、与分组头文字对齐 */
+.tool-call-card__group-body {
     -fx-spacing: 4;
-    -fx-padding: 6 0 0 13;
+    -fx-padding: 2 0 0 14;
     -fx-border-color: #d9d9de;
     -fx-border-width: 0 0 0 1;
-    -fx-border-insets: 0 0 0 8;
+    -fx-border-insets: 0 0 0 5;
 }
 
 /* 命令行：等宽字体 */

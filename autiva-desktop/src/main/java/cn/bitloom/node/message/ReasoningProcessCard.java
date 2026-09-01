@@ -17,7 +17,8 @@ import java.util.function.Consumer;
  * 收进同一折叠层，避免思考 / 工具组卡片交错产生的碎片化列表项。
  * <p>
  * 容器 body 内按时序交替挂思考二级节点（{@link ProcessSectionNode}，灰卡片收纳思考文字）
- * 与工具组卡（{@link ToolCallCard}，直接展示、无二级节点标题）。流式期间由 ViewModel 调
+ * 与工具明细卡（{@link ToolCallCard} 平铺模式：无折叠标题行，分组明细直接展示，
+ * 避免「思考过程折叠 &gt; 工具折叠」嵌套）。流式期间由 ViewModel 调
  * {@link #expand()} 展开，正文开始或轮次结束时 {@link #collapse()} 折叠。
  * <p>
  * 子块内容高度变化经 onContentChanged 逐级转发给 Controller

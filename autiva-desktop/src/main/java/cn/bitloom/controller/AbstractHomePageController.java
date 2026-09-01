@@ -195,10 +195,10 @@ public abstract class AbstractHomePageController implements Initializable, Butto
         VBox.setVgrow(this.chatScrollPane, Priority.ALWAYS);
         this.chatListContainer.getChildren().add(this.chatScrollPane);
 
-        // 注入 session 激活回调：切换 session 时重置 todo 卡片引用，
+        // 注入 session 激活回调：切换 session 时恢复/隐藏对应 session 的编辑器面板视图，
         // 并强制滚动到底部（stickToBottom 残留旧值会导致切回的 session 不跟随最新消息）
-        this.getViewModel().setSessionActivatedHandler(_ -> {
-            clearEditorPanelCards();
+        this.getViewModel().setSessionActivatedHandler(sessionId -> {
+            onEditorPanelSessionChanged(sessionId);
             forceScrollToBottom();
         });
 
@@ -228,10 +228,10 @@ public abstract class AbstractHomePageController implements Initializable, Butto
 
         this.toolUIBridge.setOnNodeAdded(this::addChatNode);
 
-        // TodoWrite 结果统一路由到右侧编辑器面板的 Todo 视图（work/code 模式共用）
+        // TodoWrite 结果统一路由到右侧编辑器面板对应 session 的 Todo 视图（work/code 模式共用）
         this.toolUIBridge.setOnShowTodos((sessionId, todosJson) -> {
             if (indexController != null) {
-                indexController.showTodoInPanel(todosJson);
+                indexController.showTodoInPanel(sessionId, todosJson);
             }
         });
 
@@ -522,13 +522,13 @@ public abstract class AbstractHomePageController implements Initializable, Butto
     }
 
     /**
-     * 切换 session 时重置编辑器面板卡片引用，确保只显示当前 active session 的产物。
-     * 默认清理 Todo 视图；子类 override 追加模式专有清理（如 code 重置 goal 卡片）。
+     * session 激活时同步编辑器面板视图，确保只显示当前 active session 的产物：
+     * 恢复该 session 的 Todo 视图（无则收起正在显示的其他 session 的 todo）。
+     * 子类 override 追加模式专有同步（如 code 重置 goal 卡片引用）。
      */
-    protected void clearEditorPanelCards() {
-        // 清理右侧编辑器面板的 Todo 视图，确保只显示当前 active session 的待办
+    protected void onEditorPanelSessionChanged(String sessionId) {
         if (indexController != null && indexController.getEditorPanelController() != null) {
-            indexController.getEditorPanelController().clearTodoView();
+            indexController.getEditorPanelController().restoreTodoForSession(sessionId);
         }
     }
 

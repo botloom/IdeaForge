@@ -1,5 +1,6 @@
 package cn.bitloom.controller;
 
+import cn.bitloom.store.Store;
 import javafx.collections.FXCollections;
 import javafx.collections.ObservableList;
 import javafx.fxml.FXML;
@@ -226,37 +227,96 @@ public class EditorPanelController implements Initializable {
         return editorPanel.isVisible();
     }
 
-    // ===== Todo 视图（单实例复用，work/code 模式共用） =====
+    // ===== Todo 视图（每 session 一个 tab，work/code 模式共用） =====
+
+    /** EditorTab.userData 中记录 todo 所属 sessionId 的 key */
+    private static final String TODO_SESSION_KEY = "sessionId";
 
     /**
-     * 展示/更新 Todo 视图：首次调用创建 TODO tab 并选中，后续更新复用同一 tab 原地刷新。
+     * 展示/更新指定 session 的 Todo 视图：首次调用创建该 session 专属的 TODO tab，
+     * 后续更新复用同一 tab 原地刷新。仅当该 session 是当前 active session 时才切到前台显示；
+     * 非 active session 的更新只刷新 tab 内容（保持隐藏，切回时恢复显示最新内容）。
      */
-    public void showTodoView(String todosJson) {
-        show();
-        EditorTab todoTab = findTabByType(ViewType.TODO);
+    public void showTodoView(String sessionId, String todosJson) {
+        boolean isActive = java.util.Objects.equals(Store.currentSessionId.get(), sessionId);
+        EditorTab todoTab = findTodoTabBySession(sessionId);
         if (todoTab == null) {
-            cn.bitloom.node.tool.TodoCard card = new cn.bitloom.node.tool.TodoCard(todosJson, this::clearTodoView);
+            cn.bitloom.node.tool.TodoCard card = new cn.bitloom.node.tool.TodoCard(todosJson, this::closeActiveTodoView);
             card.getStyleClass().add("editor-panel__todo-view");
 
             final EditorTab newTab = createTab(ViewType.TODO, card);
+            newTab.userData.put(TODO_SESSION_KEY, sessionId);
             addTab(newTab);
-            selectTab(newTab);
             // 宽度约束绑定到视图容器：阻断超长 item 文本把卡片/行撑出可视区，
             // 使长文本正常换行，而 activeForm 与状态标签始终可见
             card.maxWidthProperty().bind(viewContainer.widthProperty());
+            if (isActive) {
+                show();
+                selectTab(newTab);
+            }
         } else {
             ((cn.bitloom.node.tool.TodoCard) todoTab.content).update(todosJson);
-            selectTab(todoTab);
+            if (isActive) {
+                show();
+                selectTab(todoTab);
+            }
         }
     }
 
     /**
-     * 关闭 Todo 视图（切换 session 时清理，确保只显示当前 active session 的待办）。
+     * session 激活时恢复其 Todo 视图：有该 session 的 tab 则切换显示，
+     * 没有且当前正显示其他 session 的 todo 时退出 todo 显示（tab 保留，切回可恢复）。
      */
-    public void clearTodoView() {
-        EditorTab todoTab = findTabByType(ViewType.TODO);
-        if (todoTab != null) {
-            closeTodoTab(todoTab);
+    public void restoreTodoForSession(String sessionId) {
+        EditorTab target = findTodoTabBySession(sessionId);
+        if (target != null) {
+            if (indexController != null) {
+                indexController.ensureEditorVisible();
+            }
+            selectTab(target);
+        } else {
+            collapseActiveTodoView();
+        }
+    }
+
+    /** 查找指定 session 的 Todo tab */
+    private EditorTab findTodoTabBySession(String sessionId) {
+        return tabs.stream()
+                .filter(t -> t.viewType == ViewType.TODO)
+                .filter(t -> java.util.Objects.equals(t.userData.get(TODO_SESSION_KEY), sessionId))
+                .findFirst()
+                .orElse(null);
+    }
+
+    /**
+     * 关闭当前正在显示的 Todo 视图（TodoCard 关闭按钮回调；该卡片所属 session 的 tab 一并销毁）。
+     */
+    public void closeActiveTodoView() {
+        if (activeTab != null && activeTab.viewType == ViewType.TODO) {
+            closeTodoTab(activeTab);
+        }
+    }
+
+    /**
+     * 若当前正显示 Todo 视图则退出（回落到上一个非 todo 视图或关闭面板），
+     * 所有 session 的 todo tab 保留在 tabs 中以便切回时恢复。
+     */
+    private void collapseActiveTodoView() {
+        if (activeTab == null || activeTab.viewType != ViewType.TODO) {
+            return;
+        }
+        if (previousActiveTab != null && tabs.contains(previousActiveTab)
+                && previousActiveTab != activeTab && previousActiveTab.viewType != ViewType.TODO) {
+            selectTab(previousActiveTab);
+        } else {
+            activeTab = null;
+            currentViewType = null;
+            notifyViewTypeChanged();
+            if (indexController != null) {
+                indexController.closeEditorPanel();
+            } else {
+                hide();
+            }
         }
     }
 

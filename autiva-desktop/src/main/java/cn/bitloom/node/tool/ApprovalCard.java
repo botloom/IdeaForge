@@ -26,6 +26,9 @@ import java.util.function.BiConsumer;
  */
 public class ApprovalCard extends VBox {
 
+    /** 是否已被响应或超时取消（用于 session 切换时清理 pending 列表中的死卡） */
+    private volatile boolean dismissed = false;
+
     public ApprovalCard(String approvalJson, String approvalId, BiConsumer<String, String> onAnswered) {
         this.getStyleClass().add("approval-card");
 
@@ -168,11 +171,16 @@ public class ApprovalCard extends VBox {
         dismiss();
     }
 
+    public boolean isDismissed() {
+        return dismissed;
+    }
+
     /**
      * 从父容器移除本卡片（用户已选择，或超时被主动取消）。
      * 父容器无内容时自动隐藏。
      */
     public void dismiss() {
+        dismissed = true;
         Platform.runLater(() -> {
             if (getParent() instanceof VBox parent) {
                 parent.getChildren().remove(this);

@@ -22,10 +22,13 @@ import java.util.function.Consumer;
 /**
  * 工具调用分组卡片：承载一组连续的工具调用（Read / Write / Edit / Command）。
  * <p>
- * 卡片默认折叠，标题行显示组内工具的统计总结（如「已读取 2 个文件，已修改 1 个文件，
- * 已执行 3 个命令」）；点击展开后为按类型分组的树形明细：每个类型一行
- * 「icon + 已读取 N 个文件」分组头，其下带左侧竖线引导线的明细列表
- * （文件为可点击链接，命令为等宽文本）。
+ * 折叠模式（默认，独立列表项）：卡片默认折叠，标题行显示组内工具的统计总结
+ * （如「已读取 2 个文件，已修改 1 个文件，已执行 3 个命令」）；点击展开后为
+ * 按类型分组的明细：每个类型一行「icon + 已读取 N 个文件」分组头，其下带
+ * 左侧竖线引导线的明细列表（文件为可点击链接，命令为等宽文本）。
+ * <p>
+ * 平铺模式（flat=true，思考过程容器内使用）：无折叠标题行，分组明细直接展示，
+ * 避免「思考过程折叠 > 工具折叠」的嵌套折叠。
  * <p>
  * 工具流式追加时整体幂等重建明细区。
  */
@@ -38,6 +41,8 @@ public class ToolCallCard extends VBox {
     private Consumer<String> onContentChanged;
 
     private final String baseDir;
+    /** 平铺模式：无折叠标题行，明细直接展示（思考过程容器内的工具链）。 */
+    private final boolean flat;
     private boolean collapsed = true;
 
     private Label title;
@@ -52,11 +57,20 @@ public class ToolCallCard extends VBox {
 
     /** @param projectPath 项目根目录，用于将相对 filePath 解析为可点击的绝对路径链接 */
     public ToolCallCard(String projectPath) {
+        this(projectPath, false);
+    }
+
+    /**
+     * @param projectPath 项目根目录，用于将相对 filePath 解析为可点击的绝对路径链接
+     * @param flat        平铺模式：无折叠标题行，分组明细直接展示（思考过程容器内的工具链）
+     */
+    public ToolCallCard(String projectPath, boolean flat) {
         this.baseDir = projectPath;
+        this.flat = flat;
         buildShell();
     }
 
-    /** 构建卡片外壳：标题栏（可点击折叠）+ 树形明细容器。 */
+    /** 构建卡片外壳：折叠模式为「标题栏 + 可折叠明细」；平铺模式仅明细直接展示。 */
     private void buildShell() {
         this.getStyleClass().add("tool-call-card");
 
@@ -64,36 +78,36 @@ public class ToolCallCard extends VBox {
         content.getStyleClass().add("tool-call-card__content");
         this.content = content;
 
-        // ===== 标题栏（整卡点击切换折叠）：显示组内工具统计总结 =====
-        HBox header = new HBox(4);
-        header.getStyleClass().add("tool-call-card__header");
-        header.setAlignment(Pos.CENTER_LEFT);
-
-        title = new Label("");
-        title.getStyleClass().add("tool-call-card__title");
-        title.setWrapText(true);
-
-        SvgImageView toolIcon = new SvgImageView();
-        toolIcon.setFitWidth(14);
-        toolIcon.setFitHeight(14);
-        toolIcon.setSvgPath("/cn/bitloom/images/tool.svg");
-        toolIcon.setStrokeColor("#86868b");
-
-        chevron = new ChevronNode();
-
-        header.getChildren().addAll(toolIcon, title, chevron);
-
-        // ===== 明细容器（展开态）：按类型分组的树形明细 =====
+        // ===== 明细容器：按类型分组的明细 =====
         details = new VBox(2);
         details.getStyleClass().add("tool-call-card__details");
 
-        header.setOnMouseClicked(e -> toggleCollapse());
+        if (flat) {
+            // 平铺模式：无折叠标题行，明细直接展示；间距全部交给容器 body 的 spacing
+            this.getStyleClass().add("tool-call-card--flat");
+            collapsed = false;
+            content.getChildren().add(details);
+        } else {
+            // ===== 折叠模式：标题栏（整卡点击切换折叠）显示组内工具统计总结 =====
+            HBox header = new HBox(4);
+            header.getStyleClass().add("tool-call-card__header");
+            header.setAlignment(Pos.CENTER_LEFT);
 
-        content.getChildren().addAll(header, details);
+            title = new Label("");
+            title.getStyleClass().add("tool-call-card__title");
+            title.setWrapText(true);
+
+            chevron = new ChevronNode();
+
+            header.getChildren().addAll(title, chevron);
+            header.setOnMouseClicked(e -> toggleCollapse());
+
+            content.getChildren().addAll(header, details);
+        }
+
         content.setMaxWidth(Double.MAX_VALUE);
         this.getChildren().add(content);
 
-        // 默认折叠：仅显示标题总结
         applyCollapseState();
     }
 
@@ -108,21 +122,57 @@ public class ToolCallCard extends VBox {
         counts[type.ordinal()]++;
         entries.add(new ToolEntry(type, arguments));
         rebuildDetails();
-        title.setText(buildHeaderStat());
+        if (title != null) {
+            title.setText(buildHeaderStat());
+        }
         notifyContentChanged();
     }
 
-    /** 幂等重建明细区：去掉类型分组与条目 icon，直接按调用顺序平铺文件/命令。 */
+    /** 幂等重建明细区：按类型分组，每组为「icon + 统计」分组头，其下带竖线引导的条目列表。 */
     private void rebuildDetails() {
         details.getChildren().clear();
-        for (ToolEntry entry : entries) {
+        for (Type type : Type.values()) {
+            List<ToolEntry> groupEntries = entries.stream().filter(e -> e.type() == type).toList();
+            if (groupEntries.isEmpty()) {
+                continue;
+            }
+            details.getChildren().add(buildGroupHeader(type, groupEntries.size()));
+            details.getChildren().add(buildGroupBody(type, groupEntries));
+        }
+    }
+
+    /** 类型分组头：icon + 统计文案（如「已读取 2 个文件」）。 */
+    private HBox buildGroupHeader(Type type, int count) {
+        HBox header = new HBox(6);
+        header.getStyleClass().add("tool-call-card__group-header");
+        header.setAlignment(Pos.CENTER_LEFT);
+
+        SvgImageView icon = new SvgImageView();
+        icon.setFitWidth(14);
+        icon.setFitHeight(14);
+        icon.setSvgPath(type.iconPath);
+        icon.setStrokeColor("#86868b");
+
+        Label label = new Label(type.stat(count));
+        label.getStyleClass().add("tool-call-card__group-title");
+
+        header.getChildren().addAll(icon, label);
+        return header;
+    }
+
+    /** 组内条目容器：左侧竖线引导，条目相对分组头缩进一级。 */
+    private VBox buildGroupBody(Type type, List<ToolEntry> groupEntries) {
+        VBox body = new VBox(2);
+        body.getStyleClass().add("tool-call-card__group-body");
+        for (ToolEntry entry : groupEntries) {
             Region node = buildEntryNode(entry.type(), entry.arguments());
             if (node == null) {
                 continue;
             }
             node.setMaxWidth(Double.MAX_VALUE);
-            details.getChildren().add(node);
+            body.getChildren().add(node);
         }
+        return body;
     }
 
     /** 单条明细：文件类为可点击文件名链接；命令为等宽文本。 */
@@ -180,6 +230,9 @@ public class ToolCallCard extends VBox {
 
     /** 设置卡片折叠状态：true=折叠（只显示标题总结）；false=展开（显示树形明细）。 */
     private void setCollapsed(boolean collapsed) {
+        if (flat) {
+            return; // 平铺模式无折叠概念，明细始终展示
+        }
         if (this.collapsed != collapsed) {
             this.collapsed = collapsed;
             applyCollapseState();
@@ -262,15 +315,17 @@ public class ToolCallCard extends VBox {
     }
 
     private enum Type {
-        READ("已读取 %d 个文件"),
-        WRITE("已写入 %d 个文件"),
-        EDIT("已修改 %d 个文件"),
-        COMMAND("已执行 %d 个命令");
+        READ("已读取 %d 个文件", "/cn/bitloom/images/tool-read.svg"),
+        WRITE("已写入 %d 个文件", "/cn/bitloom/images/tool-write.svg"),
+        EDIT("已修改 %d 个文件", "/cn/bitloom/images/tool-edit.svg"),
+        COMMAND("已执行 %d 个命令", "/cn/bitloom/images/tool-command.svg");
 
         final String statFmt;
+        final String iconPath;
 
-        Type(String statFmt) {
+        Type(String statFmt, String iconPath) {
             this.statFmt = statFmt;
+            this.iconPath = iconPath;
         }
 
         String stat(int n) {

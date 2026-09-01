@@ -39,9 +39,9 @@ public class ToolUIBridge {
     @Setter
     private Consumer<String> onShowToast;
 
-    /** 主智能体批准回调：把 ApprovalCard 放到输入框上方的 approvalBar（不持久化到聊天历史） */
+    /** 主智能体批准回调：把 ApprovalCard 放到输入框上方的 approvalBar（不持久化到聊天历史），按所属 session 显示 */
     @Setter
-    private Consumer<ApprovalCard> onShowApproval;
+    private BiConsumer<String, ApprovalCard> onShowApproval;
 
     /** 计划批准回调（Plan Mode）：把 PlanApprovalCard 放到输入框上方的 approvalBar */
     @Setter
@@ -193,8 +193,8 @@ public class ToolUIBridge {
                     // 子智能体场景：批准框加到 TaskCard 内
                     taskCard.addApprovalCard(card);
                 } else if (this.onShowApproval != null) {
-                    // 主智能体场景：批准框加到输入框上方的 approvalBar（不持久化到聊天历史）
-                    this.onShowApproval.accept(card);
+                    // 主智能体场景：批准框携带所属 sessionId，由 Controller 按当前 active session 决定显示或收起
+                    this.onShowApproval.accept(sessionId, card);
                 } else if (this.onNodeAdded != null) {
                     // fallback：加到聊天区
                     this.onNodeAdded.accept(sessionId, card);

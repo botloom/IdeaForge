@@ -927,9 +927,10 @@ public abstract class AbstractHomePageViewModel {
     }
 
     /**
-     * 获取工具组卡。思考容器存在（未闭合）→ 工具组卡直接挂进容器 body
-     * （无「工具调用」二级节点标题），即思考引发的工具链收进容器；
-     * 容器已闭合/不存在（正文后的纯工具调用）→ 独立列表项，相邻工具组复用。
+     * 获取工具组卡。思考容器存在（未闭合）→ 工具组用平铺模式直接挂进容器 body
+     * （无折叠标题行、无「工具调用」二级节点标题），思考引发的工具明细直接展示，
+     * 避免「思考过程折叠 > 工具折叠」嵌套；容器已闭合/不存在（正文后的纯工具调用）
+     * → 折叠模式的独立列表项（与思考过程折叠同级），相邻工具组复用。
      */
     private ToolCallCard obtainToolGroup(SessionRuntimeState state, boolean isActive) {
         if (state != null && state.currentReasoningProcess != null) {
@@ -941,7 +942,7 @@ public abstract class AbstractHomePageViewModel {
                     return last;
                 }
             }
-            ToolCallCard group = new ToolCallCard(resolveProjectPath(session));
+            ToolCallCard group = new ToolCallCard(resolveProjectPath(session), true);
             state.currentToolGroup = group;
             state.needNewToolGroup = false;
             container.addToolCard(group);
