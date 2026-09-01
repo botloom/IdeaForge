@@ -19,6 +19,7 @@ import cn.bitloom.agentic.tool.Toolkit;
 import cn.bitloom.agentic.tool.command.ShellSession;
 import cn.bitloom.agentic.tool.session.ConversationSearchTool;
 import cn.bitloom.agentic.tool.session.CrossSessionSearchTool;
+import cn.bitloom.agentic.hook.FileChangeRecorderHook;
 import cn.bitloom.agentic.hook.IAgentHook;
 import cn.bitloom.agentic.hook.PermissionHook;
 import cn.bitloom.agentic.hook.ToolCallBudgetHook;
@@ -177,6 +178,7 @@ public class SubAgentFactory {
         List<IAgentHook> hooks = new ArrayList<>();
         hooks.add(new ToolCallBudgetHook(configManager.getMaxToolCalls()));
         hooks.add(new PermissionHook(approvalStrategies));
+        hooks.add(new FileChangeRecorderHook());
         hooks.add(new ToolResultOffloadHook());
         hooks.add(new cn.bitloom.agentic.hook.ToolCardEventHook());
         return hooks;

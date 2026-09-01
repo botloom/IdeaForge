@@ -478,7 +478,7 @@
 }
 
 .chat-list-cell--assistant {
-    -fx-padding: 6 32 6 16;
+    -fx-padding: 0 32 0 16;
 }
 
 /* Flowless 的 ScrollBar 是 VirtualizedScrollPane 的直接子节点，用后代选择器 */
@@ -519,7 +519,7 @@
 }
 
 .chat-message {
-    -fx-padding: 6 0;
+    -fx-padding: 12 0;
     -fx-background-radius: 18;
     -fx-effect: dropshadow(gaussian, rgba(0, 0, 0, 0.05), 2, 0, 0, 1);
 }
@@ -529,10 +529,33 @@
     -fx-text-fill: #1d1d1f;
     -fx-background-radius: 18 18 6 18;
     -fx-padding: 6 16;
+    -fx-effect: null;
 }
 
 .chat-message--user .chat-message__content {
     -fx-text-fill: #1d1d1f;
+}
+
+/* 用户消息卡：外层透明容器承载 hover 检测（覆盖气泡与下方按钮行） */
+.user-message-card {
+    -fx-background-color: transparent;
+    -fx-padding: 3 0;
+}
+
+/* 用户消息操作按钮（复制/撤回，位于气泡外部下方右对齐）：默认隐藏，hover 消息卡时以低透明度显现 */
+.message-action-btn {
+    -fx-background-color: transparent;
+    -fx-padding: 3;
+    -fx-opacity: 0;
+}
+
+.user-message-card:hover .message-action-btn {
+    -fx-opacity: 0.65;
+    -fx-cursor: hand;
+}
+
+.message-action-btn:hover {
+    -fx-opacity: 1;
 }
 
 .chat-message--assistant {
@@ -546,23 +569,28 @@
 }
 
 /* AI 消息卡内块间距：标题/段落/列表/代码块之间统一 8px，
-   否则 VBox 默认 0 + 段落 padding 清零会导致块贴块 */
+   否则 VBox 默认 0 + 段落 padding 清零会导致块贴块。
+   padding 10 0 14 0：正文段落自带上下 padding 2px、文本渲染底部溢出 ~2px，
+   补偿后正文卡「内容距卡片边缘」≈12，与其他标题型卡片（padding 12）一致，
+   使所有相邻卡片间的缝隙视觉相同 */
 .chat-message--assistant {
     -fx-spacing: 8;
+    -fx-padding: 10 0 14 0;
 }
 
 /* 注意：不要对 .chat-message__content 做 padding 清零——
    它会以更高优先级覆盖 .md-heading-* 的 padding，导致标题底线紧贴文字。
    AI 消息卡内块间距统一由 .chat-message--assistant 的 spacing 提供。 */
 
-/* 思考折叠块（ReasoningCard，独立列表项）：标题 + 展开/收起按钮，默认折叠 */
-/* 垂直节奏与 AI 正文/工具卡统一：全部依赖 cell 6 + chat-message 6 */
+/* 思考过程容器（ReasoningProcessCard）：与其他消息卡统一 12 边距；
+   底部 14 额外吸收内部文本渲染溢出（TextFlow 实际渲染比布局高 ~2px），
+   避免容器内容侵入下一张卡片、压缩「容器→正文」的视觉缝隙 */
 .reasoning-card {
-    -fx-padding: 0;
+    -fx-padding: 12 0 14 0;
 }
 
 .fold-section {
-    -fx-spacing: 4;
+    -fx-spacing: 10;
 }
 
 .fold-header {
@@ -580,7 +608,7 @@
     -fx-min-height: 7;
     -fx-pref-height: 7;
     -fx-max-height: 7;
-    -fx-shape: "M0,0 L6,3.2 L0,6.4 L0,6 L3.6,3.2 L0,0.4 Z";
+    -fx-shape: "M0,0 L5,3.5 L0,7 L0,6.6 L3,3.5 L0,0.4 Z";
     /* 几何居中时相对 14px 标题文字视觉中线略偏高，下移 1px 对齐 */
     -fx-translate-y: 1;
 }
@@ -601,14 +629,12 @@
    竖线由二级节点（思考/工具调用）各自内容区提供，避免与 ToolCallCard 内部竖线双线 */
 .fold-body {
     -fx-padding: 0;
-    -fx-spacing: 6;
+    -fx-spacing: 10;
 }
 
 /* 「参考内容」折叠卡片（MemoryRecallCard，首轮记忆召回）：默认折叠，
-   展开体左侧引导竖线与工具卡明细同处 x=8 一条垂直线，文件名缩进与工具卡一致 */
-.memory-recall-card {
-    -fx-padding: 0;
-}
+   展开体左侧引导竖线与工具卡明细同处 x=8 一条垂直线，文件名缩进与工具卡一致；
+   边距与其他消息卡统一（12 0，由 .chat-message 提供） */
 
 .memory-recall-body {
     -fx-border-color: transparent transparent transparent #d9d9de;
@@ -659,7 +685,7 @@
 
 /* 思考节点内容：左侧引导竖线（x=8）+ 灰色卡片（思考文字全部收纳其中） */
 .process-section--thinking .process-section__content {
-    -fx-spacing: 6;
+    -fx-spacing: 10;
     -fx-padding: 8 14 8 39;
     -fx-background-color: #f5f5f7;
     -fx-background-insets: 0 0 0 25;
@@ -1176,9 +1202,9 @@
 }
 
 /* 子智能体层（TaskCard）：折叠头与「思考过程」容器一致（fold-title + chevron），
-   展开正文左侧一条引导竖线（x=8），内部折叠模块与主智能体水平对齐（无额外左缩进） */
+   展开正文左侧一条引导竖线（x=8），内部折叠模块与主智能体水平对齐（无额外左缩进）；
+   边距与其他消息卡统一（12 0，由 .chat-message 提供） */
 .chat-message--task {
-    -fx-padding: 0;
     -fx-effect: null;
 }
 
@@ -1376,11 +1402,11 @@
 }
 
 /* ===== 工具调用内联状态行（ToolCallCard）=====
-   垂直节奏与思考卡/AI 正文一致（padding 6 0）；内联紧凑状态行：无卡片边框/背景，
+   垂直节奏与思考卡/AI 正文一致（padding 12 0）；内联紧凑状态行：无卡片边框/背景，
    标题行为灰色小字状态总结，点击展开逐条纯文本明细。 */
 .tool-call-card {
     -fx-background-color: transparent;
-    -fx-padding: 6 0;
+    -fx-padding: 12 0;
 }
 
 /* 平铺模式（思考过程容器内）：无折叠标题行，间距全部交给容器 body 的 spacing */
@@ -1411,8 +1437,8 @@
 
 /* 可折叠主体：无贯穿线，分组头 icon 顶格，条目区用引导线 */
 .tool-call-card__details {
-    -fx-spacing: 6;
-    -fx-padding: 6 0 0 0;
+    -fx-spacing: 10;
+    -fx-padding: 12 0 0 0;
 }
 
 /* 类型分组头：icon + 统计文案（如「已读取 2 个文件」） */
@@ -1429,7 +1455,7 @@
 
 /* 组内条目容器：左侧引导线（x=5），文件名挂线右侧、与分组头文字对齐 */
 .tool-call-card__group-body {
-    -fx-spacing: 4;
+    -fx-spacing: 8;
     -fx-padding: 2 0 0 14;
     -fx-border-color: #d9d9de;
     -fx-border-width: 0 0 0 1;

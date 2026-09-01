@@ -3,6 +3,7 @@ package cn.bitloom.agentic.session;
 import cn.bitloom.agentic.event.AbstractEvent;
 import cn.bitloom.agentic.event.CompactionEvent;
 import cn.bitloom.agentic.event.MessageEvent;
+import cn.bitloom.agentic.snapshot.TurnSnapshotStore;
 import cn.bitloom.constant.AppConstants;
 import cn.bitloom.exception.StorageException;
 import cn.bitloom.util.JsonUtils;
@@ -343,6 +344,147 @@ public class FileSystemSessionManager implements ISessionManager {
             log.info("撤回对话完成: sessionId={}, 保留事件数={}, 原事件数={}", sessionId, kept.size(), all.size());
         } catch (IOException e) {
             log.error("撤回事件失败: sessionId={}", sessionId, e);
+        }
+    }
+
+    @Override
+    public RevertSummary revertFromUserMessage(String sessionId, String userMessageEventId) {
+        if (sessionId == null || userMessageEventId == null) {
+            return RevertSummary.failure("参数缺失");
+        }
+        return withLock(sessionId, () -> doRevertFromUserMessage(sessionId, userMessageEventId));
+    }
+
+    private RevertSummary doRevertFromUserMessage(String sessionId, String userMessageEventId) {
+        // 刷盘并清空缓冲，确保撤回目标及之后的事件都已落盘（这些内容即将被丢弃）
+        flushPendingEvents(sessionId);
+        pendingEvents.keySet().removeIf(k -> k.equals(sessionId) || k.startsWith(sessionId + "@"));
+
+        Path eventsFile = AppConstants.Session.eventsFile(sessionId);
+        if (!Files.exists(eventsFile)) {
+            return RevertSummary.failure("会话事件文件不存在");
+        }
+
+        List<AbstractEvent> all = new ArrayList<>();
+        try (BufferedReader reader = Files.newBufferedReader(eventsFile)) {
+            String line;
+            while ((line = reader.readLine()) != null) {
+                if (line.isBlank()) continue;
+                AbstractEvent se = deserializeEvent(line);
+                if (se != null) all.add(se);
+            }
+        } catch (IOException e) {
+            return RevertSummary.failure("读取事件失败: " + e.getMessage());
+        }
+
+        // 从后往前定位目标用户消息（ID 精确匹配，避免重名文本截错位置）
+        int keepCount = -1;
+        long targetTs = Long.MAX_VALUE;
+        for (int i = all.size() - 1; i >= 0; i--) {
+            AbstractEvent e = all.get(i);
+            if (e instanceof MessageEvent me && me.isUserMessage() && userMessageEventId.equals(me.getId())) {
+                keepCount = i;
+                targetTs = me.getTimestamp() != null ? me.getTimestamp() : Long.MAX_VALUE;
+                break;
+            }
+        }
+        if (keepCount < 0) {
+            return RevertSummary.failure("未找到目标用户消息");
+        }
+
+        // 恢复该轮及其后所有轮次的文件快照：turnId 以时间戳为前缀，目录名字典序即时间序
+        List<String> restored = new ArrayList<>();
+        List<String> deleted = new ArrayList<>();
+        Path turnsDir = AppConstants.Session.turnsDir(sessionId);
+        if (Files.exists(turnsDir)) {
+            try (Stream<Path> dirs = Files.list(turnsDir)) {
+                List<Path> turnDirs = dirs.filter(Files::isDirectory).sorted().toList();
+                for (Path turnDir : turnDirs) {
+                    Long turnTs = parseTurnTimestamp(turnDir);
+                    if (turnTs == null || turnTs < targetTs) continue;
+                    restoreTurnSnapshots(turnDir, restored, deleted);
+                    deleteRecursively(turnDir);
+                }
+            } catch (IOException e) {
+                log.error("撤回恢复快照失败: sessionId={}", sessionId, e);
+                return RevertSummary.failure("恢复文件快照失败: " + e.getMessage());
+            }
+        }
+
+        // 截断该用户消息及之后的所有事件
+        try {
+            List<AbstractEvent> kept = all.subList(0, keepCount);
+            StringBuilder sb = new StringBuilder();
+            for (AbstractEvent e : kept) {
+                sb.append(JsonUtils.toJson(e)).append("\n");
+            }
+            Files.writeString(eventsFile, sb.toString(), StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING);
+        } catch (IOException e) {
+            log.error("撤回截断事件失败: sessionId={}", sessionId, e);
+            return RevertSummary.failure("截断对话失败: " + e.getMessage());
+        }
+
+        log.info("撤回轮次完成: sessionId={}, 恢复文件={}, 删除文件={}", sessionId, restored.size(), deleted.size());
+        return RevertSummary.ok(restored, deleted);
+    }
+
+    /** turnId 格式为 {epochMillis}-{uuid8}，解析前缀时间戳 */
+    private Long parseTurnTimestamp(Path turnDir) {
+        String name = turnDir.getFileName().toString();
+        int idx = name.indexOf('-');
+        if (idx <= 0) return null;
+        try {
+            return Long.parseLong(name.substring(0, idx));
+        } catch (NumberFormatException e) {
+            return null;
+        }
+    }
+
+    /** 恢复一个 turn 目录内的所有文件快照（existed=false 的 AI 新建文件则删除） */
+    private void restoreTurnSnapshots(Path turnDir, List<String> restored, List<String> deleted) throws IOException {
+        try (Stream<Path> files = Files.list(turnDir)) {
+            List<Path> snapshots = files
+                    .filter(p -> {
+                        String n = p.getFileName().toString();
+                        return n.startsWith("snapshot-") && n.endsWith(".json");
+                    })
+                    .toList();
+            for (Path snap : snapshots) {
+                try {
+                    String json = Files.readString(snap);
+                    String path = JsonUtils.extractString(json, "path");
+                    String ref = JsonUtils.extractString(json, "ref");
+                    boolean existed = JsonUtils.parse(json).path("existed").asBoolean(true);
+                    if (path == null || path.isBlank()) continue;
+                    if (existed && ref != null) {
+                        Path target = Path.of(path);
+                        if (target.getParent() != null) {
+                            Files.createDirectories(target.getParent());
+                        }
+                        Files.write(target, TurnSnapshotStore.read(turnDir, ref));
+                        restored.add(path);
+                    } else {
+                        Files.deleteIfExists(Path.of(path));
+                        deleted.add(path);
+                    }
+                } catch (Exception e) {
+                    log.warn("恢复快照失败: {}", snap, e);
+                }
+            }
+        }
+    }
+
+    private void deleteRecursively(Path dir) {
+        try (Stream<Path> walk = Files.walk(dir)) {
+            walk.sorted(java.util.Comparator.reverseOrder()).forEach(p -> {
+                try {
+                    Files.delete(p);
+                } catch (IOException e) {
+                    log.warn("删除快照文件失败: {}", p, e);
+                }
+            });
+        } catch (IOException e) {
+            log.warn("删除快照目录失败: {}", dir, e);
         }
     }
 

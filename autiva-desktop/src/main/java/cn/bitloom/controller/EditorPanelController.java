@@ -251,16 +251,24 @@ public class EditorPanelController implements Initializable {
             // 使长文本正常换行，而 activeForm 与状态标签始终可见
             card.maxWidthProperty().bind(viewContainer.widthProperty());
             if (isActive) {
-                show();
+                revealEditorPanel();
                 selectTab(newTab);
             }
         } else {
             ((cn.bitloom.node.tool.TodoCard) todoTab.content).update(todosJson);
             if (isActive) {
-                show();
+                revealEditorPanel();
                 selectTab(todoTab);
             }
         }
+    }
+
+    /** active session 的 todo 显示前确保面板已挂载可见（面板被手动关闭后重新挂回） */
+    private void revealEditorPanel() {
+        if (indexController != null) {
+            indexController.ensureEditorVisible();
+        }
+        show();
     }
 
     /**

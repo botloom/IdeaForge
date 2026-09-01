@@ -474,11 +474,12 @@ public class IndexController implements Initializable {
 
     /**
      * 在编辑器面板显示/更新指定 session 的 Todo 视图（coder 模式 TodoWrite 工具回调时调用）。
+     * 面板可见性由 EditorPanelController 按 session 是否 active 决定，
+     * 非 active session 的更新不触碰面板（仅静默刷新其 tab 内容）。
      */
     public void showTodoInPanel(String sessionId, String todosJson) {
         EditorPanelController editor = getEditorPanelController();
         if (editor == null) return;
-        ensureEditorVisible();
         editor.showTodoView(sessionId, todosJson);
     }
 

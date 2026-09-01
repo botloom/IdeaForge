@@ -31,6 +31,19 @@ public interface ISessionManager {
     void truncateEventsFrom(String sessionId, String userMessageText);
 
     /**
+     * 撤回轮次：恢复指定用户消息触发的轮次及其后所有轮次中被 AI 修改的文件
+     * （依据 FileChangeRecorderHook 的轮次快照），删除这些轮次的快照目录，
+     * 并截断该用户消息及之后的所有事件。
+     * <p>
+     * Command/Process 等命令类工具造成的文件修改无法自动恢复，不在恢复范围内。
+     *
+     * @param sessionId         会话 ID
+     * @param userMessageEventId 目标用户消息事件 ID
+     * @return 撤回结果摘要（恢复/删除的文件清单）
+     */
+    RevertSummary revertFromUserMessage(String sessionId, String userMessageEventId);
+
+    /**
      * 将缓冲中的待处理事件刷盘到 events.jsonl。
      * 刷盘前会为孤儿 assistant(toolCalls) 补虚拟 ToolResponse。
      * 在每轮对话结束（appendEvent 检测到 finishReason=STOP 的 assistant）时自动调用，

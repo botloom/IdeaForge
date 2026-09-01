@@ -47,6 +47,10 @@ public class ToolUIBridge {
     @Setter
     private Consumer<Node> onShowPlanApproval;
 
+    /** 通用确认对话框回调：由 Controller 用项目统一样式的确认弹窗（AgentConfirmDialog）实现 */
+    @Setter
+    private BiConsumer<String, CompletableFuture<Boolean>> onConfirmDialog;
+
     /**
      * Todo 视图回调（coder 模式）：把 todoJson 路由到右侧编辑器面板 Todo 视图（sessionId, todosJson）。
      * work 模式未注册时，showTodos 回落到聊天流 TodoCard。
@@ -104,6 +108,19 @@ public class ToolUIBridge {
                 this.onShowToast.accept(text);
             }
         });
+    }
+
+    /**
+     * 显示通用确认对话框（统一样式，同历史消息删除弹窗），用户选择后 result complete(true/false)。
+     * 未注册回调时默认视为取消。
+     */
+    public void showConfirmDialog(String message, CompletableFuture<Boolean> result) {
+        if (onConfirmDialog == null) {
+            log.warn("确认对话框回调未注册，默认取消");
+            result.complete(false);
+            return;
+        }
+        Platform.runLater(() -> onConfirmDialog.accept(message, result));
     }
 
     /**

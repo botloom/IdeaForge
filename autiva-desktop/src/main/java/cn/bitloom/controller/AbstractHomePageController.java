@@ -228,6 +228,17 @@ public abstract class AbstractHomePageController implements Initializable, Butto
 
         this.toolUIBridge.setOnNodeAdded(this::addChatNode);
 
+        // 通用确认弹窗（撤回等场景）：使用项目统一样式的 AgentConfirmDialog（同历史消息删除弹窗）
+        this.toolUIBridge.setOnConfirmDialog((message, result) -> {
+            javafx.stage.Window owner = this.sendBox != null && this.sendBox.getScene() != null
+                    ? this.sendBox.getScene().getWindow() : null;
+            this.windowManager.showDialog("cn/bitloom/view/AgentConfirmDialog.fxml", owner, controller -> {
+                if (controller instanceof AgentConfirmDialogController confirmController) {
+                    confirmController.init(message, result::complete);
+                }
+            });
+        });
+
         // TodoWrite 结果统一路由到右侧编辑器面板对应 session 的 Todo 视图（work/code 模式共用）
         this.toolUIBridge.setOnShowTodos((sessionId, todosJson) -> {
             if (indexController != null) {

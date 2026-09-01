@@ -113,6 +113,11 @@ public class AppConstants {
             return sessionDir(sessionId).resolve("teammates.json");
         }
 
+        /** 轮次文件快照根目录：turns/{turnId}/（turnId 以时间戳为前缀，字典序即时间序） */
+        public static Path turnsDir(String sessionId) {
+            return sessionDir(sessionId).resolve("turns");
+        }
+
     }
 
     public static class Memory {

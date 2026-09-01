@@ -133,7 +133,8 @@ public class TaskTool extends AbstractTool<TaskTool.Input> {
         if (Boolean.TRUE.equals(taskCall.runInBackground())) {
             var bgTask = this.taskRepository.putTask(taskId, () -> {
                 try {
-                    String result = executeSubagent(taskCall, parentSession, branch, projectPath);
+                    String result = executeSubagent(taskCall, parentSession, branch, projectPath,
+                            resolveTurnId(context));
                     if (this.toolUIBridge != null) {
                         this.toolUIBridge.completeTaskCard(taskId, null);
                     }
@@ -156,7 +157,8 @@ public class TaskTool extends AbstractTool<TaskTool.Input> {
 
         // 前台同步执行
         try {
-            String result = executeSubagent(taskCall, parentSession, branch, projectPath);
+            String result = executeSubagent(taskCall, parentSession, branch, projectPath,
+                    resolveTurnId(context));
             if (this.toolUIBridge != null) {
                 this.toolUIBridge.completeTaskCard(taskId, null);
             }
@@ -247,6 +249,19 @@ public class TaskTool extends AbstractTool<TaskTool.Input> {
     }
 
     /**
+     * 从 ToolContext 解析父轮次 ID（子智能体的文件快照归档到同一轮，撤回时一并恢复）
+     */
+    private String resolveTurnId(ToolContext context) {
+        if (context != null) {
+            Object turnId = context.getContext().get("turnId");
+            if (turnId instanceof String id) {
+                return id;
+            }
+        }
+        return null;
+    }
+
+    /**
      * 执行子智能体任务（复用父 Session，通过 branch 隔离事件）。
      * <p>
      * 流程：
@@ -258,7 +273,8 @@ public class TaskTool extends AbstractTool<TaskTool.Input> {
      * 不再创建子 Session，事件直接持久化到父 Session（带 branch 字段）。
      * 前台同步执行时主智能体阻塞等待，无并发写入风险；后台任务事件有 branch 隔离。
      */
-    private String executeSubagent(TaskCall taskCall, Session parentSession, String branch, String projectPath) {
+    private String executeSubagent(TaskCall taskCall, Session parentSession, String branch,
+                                   String projectPath, String parentTurnId) {
         String parentSessionId = parentSession.id();
         String taskId = branch;
         MessageEvent inputEvent = MessageEvent.userMessage(parentSessionId, taskCall.prompt());
@@ -269,6 +285,8 @@ public class TaskTool extends AbstractTool<TaskTool.Input> {
                 .userId(parentSession.userId())
                 .branch(branch)
                 .projectPath(projectPath)
+                // 子智能体与父轮同属一轮：文件快照归档到同一 turnId，撤回时一并恢复
+                .put("turnId", parentTurnId)
                 .build();
         StringBuilder result = new StringBuilder();
         agent.runStream(inputEvent, ctx)

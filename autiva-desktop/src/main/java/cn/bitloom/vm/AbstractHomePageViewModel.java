@@ -15,6 +15,7 @@ import cn.bitloom.agentic.event.CompactionEvent;
 import cn.bitloom.agentic.event.MessageEvent;
 import cn.bitloom.agentic.event.MemoryRecallEvent;
 import cn.bitloom.agentic.event.UICardEvent;
+import cn.bitloom.agentic.hook.FileChangeRecorderHook;
 import cn.bitloom.agentic.hook.IAgentHook;
 import cn.bitloom.agentic.hook.MemoryExtractionHook;
 import cn.bitloom.agentic.hook.PermissionHook;
@@ -56,6 +57,7 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Consumer;
@@ -148,6 +150,8 @@ public abstract class AbstractHomePageViewModel {
         volatile boolean isStreaming = false;
         /** 是否暂停（per-session） */
         volatile boolean isPaused = false;
+        /** 当前轮次 ID（文件快照归属；Goal 续轮复用同一轮） */
+        volatile String currentTurnId = null;
         /** 切换走时保存的 messages 副本（同一 MessageCard 引用），切回时整体恢复 */
         final List<MessageCard> savedMessages = new ArrayList<>();
     }
@@ -444,6 +448,8 @@ public abstract class AbstractHomePageViewModel {
         List<IAgentHook> hooks = new ArrayList<>();
         hooks.add(new ToolCallBudgetHook(configManager.getMaxToolCalls()));
         hooks.add(new PermissionHook(approvalStrategies));
+        // 文件变更快照：Write/Edit 执行前落盘原文件，供「撤回按钮」恢复
+        hooks.add(new FileChangeRecorderHook());
         hooks.add(new TodoReminderHook());
         hooks.add(new ToolCardEventHook());
         hooks.add(new ToolResultOffloadHook());
@@ -537,6 +543,20 @@ public abstract class AbstractHomePageViewModel {
         final String agentId = Store.currentAgent.get();
         final SessionRuntimeState stateRef = currentState;
 
+        // 轮次 ID：时间戳前缀保证字典序即时间序（文件快照归档与撤回定位的依据）。
+        // Goal 续轮（continueRound）复用同一 turnId，与用户输入同属一轮
+        String turnId = System.currentTimeMillis() + "-" + UUID.randomUUID().toString().substring(0, 8);
+        stateRef.currentTurnId = turnId;
+        // 把轮次定位回填到本地回显的用户消息卡（Controller 先调 addUserMessage 再调 sendMessage）
+        for (int i = messages.size() - 1; i >= 0; i--) {
+            if (messages.get(i) instanceof UserMessageCard card
+                    && card.getRevertEventId() == null
+                    && text != null && text.trim().equals(card.getContent())) {
+                card.bindRevert(inputEvent.getId(), this::requestRevert);
+                break;
+            }
+        }
+
         // 在后台线程执行，避免阻塞 FX 线程；per-session 锁保证串行
         CompletableFuture.runAsync(() -> {
             sessionManager.withLock(sid, () -> {
@@ -549,6 +569,8 @@ public abstract class AbstractHomePageViewModel {
                             .userId(currentSession.userId())
                             .projectPath(resolveProjectPath(currentSession))
                             .put("lastUserMessage", messageText)
+                            .put("turnId", turnId)
+                            .put("userMessageEventId", inputEvent.getId())
                             .build();
                     subscribeAgentStream(agent, inputEvent, ctx, sid, stateRef);
                 } catch (Exception e) {
@@ -704,6 +726,8 @@ public abstract class AbstractHomePageViewModel {
                             .userId(targetSession.userId())
                             .projectPath(resolveProjectPath(targetSession))
                             .put("lastUserMessage", message)
+                            // 续轮与用户输入同属一轮：复用 turnId，快照继续归档到同一轮
+                            .put("turnId", stateRef.currentTurnId)
                             .build();
                     subscribeAgentStream(agent, inputEvent, ctx, sessionId, stateRef);
                 } catch (Exception e) {
@@ -1008,10 +1032,11 @@ public abstract class AbstractHomePageViewModel {
         state.currentToolGroup = null;
         state.needNewToolGroup = true;
         state.activeToolCallIds.clear();
-        // synthetic 消息（Goal 续轮 goal_feedback / 后台任务通知等系统注入）以通知样式渲染
+        // synthetic 消息（Goal 续轮 goal_feedback / 后台任务通知等系统注入）以通知样式渲染。
+        // 普通用户消息携带事件 ID 供撤回按钮定位轮次
         MessageCard card = e.isSynthetic()
                 ? new cn.bitloom.node.message.NotificationCard(e.getText())
-                : new UserMessageCard(e.getText());
+                : new UserMessageCard(e.getText(), e.getId(), this::requestRevert);
         if (isActive) messages.add(card);
         state.savedMessages.add(card);
     }
@@ -1183,6 +1208,55 @@ public abstract class AbstractHomePageViewModel {
         if (currentState != null) {
             currentState.savedMessages.add(card);
         }
+    }
+
+    /**
+     * 撤回指定用户消息触发的轮次（撤回按钮回调，FX 线程）：
+     * 确认后恢复 AI 文件修改 + 截断该消息及之后的对话，并重建消息列表。
+     */
+    public void requestRevert(String userMessageEventId) {
+        if (this.session == null || userMessageEventId == null) {
+            return;
+        }
+        String sid = this.session.id();
+        SessionRuntimeState state = sessionStates.get(sid);
+        // 仅流式生成中禁止撤回；用户已停止（isPaused）时允许——「AI 改坏了 → 停止 → 撤回」是主场景
+        if (state != null && state.isStreaming) {
+            toolUIBridge.showToast("会话正在运行，无法撤回");
+            return;
+        }
+
+        CompletableFuture<Boolean> confirmed = new CompletableFuture<>();
+        toolUIBridge.showConfirmDialog(
+                "将撤回该消息及之后的所有内容：恢复 AI 在此之后的文件修改，并删除此后的对话记录；命令行执行的修改无法自动恢复。确定撤回？",
+                confirmed);
+        confirmed.thenAccept(ok -> {
+            if (!ok) {
+                return;
+            }
+            CompletableFuture.runAsync(() -> {
+                RevertSummary summary = sessionManager.revertFromUserMessage(sid, userMessageEventId);
+                Platform.runLater(() -> {
+                    if (!summary.success()) {
+                        toolUIBridge.showToast("撤回失败：" + summary.error());
+                        return;
+                    }
+                    // 丢弃该会话的运行时状态，按截断后的事件流重建消息列表
+                    SessionRuntimeState removed = sessionStates.remove(sid);
+                    if (currentState == removed) {
+                        currentState = null;
+                    }
+                    if (this.session != null && sid.equals(this.session.id())) {
+                        messages.clear();
+                        currentState = sessionStates.computeIfAbsent(sid, k -> new SessionRuntimeState());
+                        prepareHistoricalMessages();
+                    }
+                    toolUIBridge.showToast(summary.fileCount() > 0
+                            ? "已撤回 " + summary.fileCount() + " 个文件修改及之后的对话"
+                            : "已撤回该消息及之后的对话");
+                });
+            });
+        });
     }
 
     /**
