@@ -1,7 +1,7 @@
 package cn.bitloom.node.message;
 
 import cn.bitloom.util.MarkdownFxRenderer;
-import org.springframework.ai.chat.messages.MessageType;
+import cn.bitloom.harness.llm.Role;
 import javafx.animation.PauseTransition;
 import javafx.beans.property.*;
 import javafx.scene.Node;
@@ -73,8 +73,8 @@ public class AssistantMessageCard extends MessageCard {
     }
 
     @Override
-    public MessageType getMessageType() {
-        return MessageType.ASSISTANT;
+    public Role getMessageType() {
+        return Role.ASSISTANT;
     }
 
     @Override

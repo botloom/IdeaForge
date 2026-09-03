@@ -3,7 +3,7 @@ package cn.bitloom.agentic.agent;
 import cn.bitloom.agentic.util.MarkdownParser;
 import lombok.Data;
 import org.jspecify.annotations.NonNull;
-import org.springframework.util.StringUtils;
+import org.apache.commons.lang3.StringUtils;
 
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -147,7 +147,7 @@ public record AgentDefinition(
         String value = frontMatter.get(key).toString();
         return Stream.of(value.split(","))
                 .map(String::trim)
-                .filter(StringUtils::hasText)
+                .filter(StringUtils::isNotBlank)
                 .toList();
     }
 

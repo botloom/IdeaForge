@@ -1,12 +1,12 @@
 package cn.bitloom.agentic.tool.goal;
 
 import cn.bitloom.agentic.goal.GoalManager;
-import cn.bitloom.agentic.tool.AbstractTool;
-import cn.bitloom.agentic.tool.ToolResult;
+import cn.bitloom.harness.tool.AbstractTool;
+import cn.bitloom.harness.tool.ToolResult;
+import cn.bitloom.harness.tool.ToolContext;
+import cn.bitloom.harness.tool.ToolParam;
+import cn.bitloom.util.Assert;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.ai.chat.model.ToolContext;
-import org.springframework.ai.tool.annotation.ToolParam;
-import org.springframework.util.Assert;
 
 /**
  * 设置目标工具（对标 learn-claude-code s17 Goal Loop 入口）。

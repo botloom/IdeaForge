@@ -11,7 +11,7 @@ import javafx.scene.text.FontPosture;
 import javafx.scene.text.Text;
 import javafx.scene.text.TextFlow;
 import lombok.Setter;
-import org.springframework.ai.chat.messages.MessageType;
+import cn.bitloom.harness.llm.Role;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -204,9 +204,9 @@ public class ReasoningCard extends MessageCard {
     }
 
     @Override
-    public MessageType getMessageType() {
+    public Role getMessageType() {
         // 助手侧内容，左对齐
-        return MessageType.ASSISTANT;
+        return Role.ASSISTANT;
     }
 
     @Override

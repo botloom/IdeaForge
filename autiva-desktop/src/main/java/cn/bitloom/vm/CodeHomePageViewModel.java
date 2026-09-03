@@ -2,10 +2,7 @@ package cn.bitloom.vm;
 
 import cn.bitloom.agentic.agent.AgentDefinition;
 import cn.bitloom.agentic.agent.AgentDefinitionManager;
-import cn.bitloom.agentic.goal.GoalJudgeHook;
 import cn.bitloom.agentic.goal.GoalState;
-import cn.bitloom.agentic.hook.IAgentHook;
-import cn.bitloom.agentic.memory.FileSystemAgentMemoryStore;
 import cn.bitloom.agentic.model.ModelFactory;
 import cn.bitloom.agentic.session.CreateSessionRequest;
 import cn.bitloom.agentic.session.FileSystemSessionManager;
@@ -27,10 +24,6 @@ import javafx.beans.property.ObjectProperty;
 import javafx.beans.property.SimpleBooleanProperty;
 import javafx.beans.property.SimpleObjectProperty;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.ai.chat.client.ChatClient;
-import org.springframework.ai.chat.model.ChatModel;
-import org.springframework.ai.tool.ToolCallback;
-import org.springframework.stereotype.Component;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -50,14 +43,7 @@ import java.util.concurrent.CompletableFuture;
  * - slash 命令系统：/goal（目标闭环）、/plan（计划模式，批准后自动执行）
  */
 @Slf4j
-@Component
 public class CodeHomePageViewModel extends AbstractHomePageViewModel {
-
-    /** Plan Mode 工具白名单：只读探索 + 交互（ExitPlanMode 由 applyPlanModeTools 单独追加） */
-    private static final java.util.Set<String> PLAN_MODE_ALLOWED = java.util.Set.of(
-            "Read", "Glob", "Grep", "WebFetch", "WebSearch",
-            "TodoWrite", "AskUserQuestion",
-            "ConversationSearch", "CrossSessionSearch");
 
     private final ProjectRegistry projectRegistry;
     private final cn.bitloom.project.GitService gitService;
@@ -90,10 +76,11 @@ public class CodeHomePageViewModel extends AbstractHomePageViewModel {
                                  cn.bitloom.agentic.tool.mcp.McpConnectionManager mcpConnectionManager,
                                  cn.bitloom.agentic.goal.GoalManager goalManager,
                                  cn.bitloom.bridge.desktop.ToolUIBridge toolUIBridge,
+                                 cn.bitloom.agentic.plugin.PluginRegistry pluginRegistry,
                                  ProjectRegistry projectRegistry,
                                  cn.bitloom.project.GitService gitService) {
         super(fileSystemSessionManager, definitionManager, modelFactory, toolkit, skillManager, approvalStrategies,
-                configManager, mcpConnectionManager, goalManager, toolUIBridge);
+                configManager, mcpConnectionManager, goalManager, toolUIBridge, pluginRegistry);
         this.projectRegistry = projectRegistry;
         this.gitService = gitService;
         // Goal Loop 自动续轮：GoalJudgeHook / 后台任务通知通过 GoalManager 触发，
@@ -196,31 +183,10 @@ public class CodeHomePageViewModel extends AbstractHomePageViewModel {
     }
 
     @Override
-    protected List<ToolCallback> applyPlanModeTools(List<ToolCallback> allTools) {
-        if (!isPlanMode()) {
-            return allTools;
-        }
-        // 计划模式：仅保留只读探索工具，追加 ExitPlanMode（计划提交出口）
-        List<ToolCallback> filtered = new java.util.ArrayList<>(allTools.stream()
-                .filter(tc -> PLAN_MODE_ALLOWED.contains(tc.getToolDefinition().name()))
-                .toList());
-        filtered.add(ExitPlanModeTool.builder()
-                .listener(this::onPlanSubmitted)
-                .build()
-                .toToolCallback());
-        return filtered;
-    }
-
-    @Override
-    protected void appendModeHooks(List<IAgentHook> hooks, ChatModel chatModel,
-                                   FileSystemAgentMemoryStore memoryStore) {
-        // Goal Loop（目标闭环）：独立判断器复核目标达成，未达成自动续轮
-        hooks.add(GoalJudgeHook.builder()
-                .goalManager(goalManager)
-                .sessionManager(sessionManager)
-                .chatClient(ChatClient.builder(chatModel).build())
-                .listener(this::onGoalUpdated)
-                .build());
+    protected cn.bitloom.agentic.agent.assembly.AgentProfile createProfile(
+            cn.bitloom.agentic.agent.assembly.AgentAssemblyContext ctx) {
+        return new cn.bitloom.agentic.agent.assembly.CodeProfile(ctx, goalManager,
+                this::isPlanMode, this::onPlanSubmitted, this::onGoalUpdated);
     }
 
     @Override

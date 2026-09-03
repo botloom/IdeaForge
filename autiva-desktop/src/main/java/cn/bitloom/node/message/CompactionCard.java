@@ -1,6 +1,6 @@
 package cn.bitloom.node.message;
 
-import org.springframework.ai.chat.messages.MessageType;
+import cn.bitloom.harness.llm.Role;
 import javafx.scene.control.Label;
 import javafx.scene.layout.HBox;
 
@@ -19,9 +19,9 @@ public class CompactionCard extends MessageCard {
     }
 
     @Override
-    public MessageType getMessageType() {
+    public Role getMessageType() {
         // 系统提示，视觉上居中
-        return MessageType.ASSISTANT;
+        return Role.ASSISTANT;
     }
 
     @Override

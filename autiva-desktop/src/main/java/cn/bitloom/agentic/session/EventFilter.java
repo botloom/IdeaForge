@@ -18,8 +18,8 @@ package cn.bitloom.agentic.session;
 
 import cn.bitloom.agentic.event.AbstractEvent;
 import cn.bitloom.agentic.event.MessageEvent;
+import cn.bitloom.harness.llm.Role;
 import org.jspecify.annotations.Nullable;
-import org.springframework.ai.chat.messages.MessageType;
 
 import java.time.Instant;
 import java.util.List;
@@ -64,7 +64,7 @@ import java.util.regex.Pattern;
  * <pre>{@code
  * EventFilter filter = EventFilter.builder()
  *     .from(Instant.parse("2025-01-01T00:00:00Z"))
- *     .messageTypes(Set.of(MessageType.USER, MessageType.ASSISTANT))
+ *     .messageTypes(Set.of(Role.USER, Role.ASSISTANT))
  *     .excludeSynthetic(true)
  *     .branch("orch.researcher")
  *     .build();
@@ -73,7 +73,7 @@ import java.util.regex.Pattern;
  * @author Christian Tzolov
  * @since 2.0.0
  */
-public record EventFilter(@Nullable Instant from, @Nullable Instant to, @Nullable Set<MessageType> messageTypes,
+public record EventFilter(@Nullable Instant from, @Nullable Instant to, @Nullable Set<Role> messageTypes,
 		boolean excludeSynthetic, @Nullable Integer lastN, @Nullable String keyword,
 		@Nullable List<String> keywords, @Nullable MatchMode matchMode, @Nullable Pattern pattern,
 		@Nullable Integer page, @Nullable Integer pageSize, @Nullable String branch, boolean excludeArchived) {
@@ -317,7 +317,7 @@ public record EventFilter(@Nullable Instant from, @Nullable Instant to, @Nullabl
 
 		private @Nullable Instant to;
 
-		private @Nullable Set<MessageType> messageTypes;
+		private @Nullable Set<Role> messageTypes;
 
 		private boolean excludeSynthetic = false;
 
@@ -357,7 +357,7 @@ public record EventFilter(@Nullable Instant from, @Nullable Instant to, @Nullabl
 		/**
 		 * Only include events whose {@link MessageEvent#getMessageType()} is in this set.
 		 */
-		public Builder messageTypes(@Nullable Set<MessageType> messageTypes) {
+		public Builder messageTypes(@Nullable Set<Role> messageTypes) {
 			this.messageTypes = messageTypes;
 			return this;
 		}

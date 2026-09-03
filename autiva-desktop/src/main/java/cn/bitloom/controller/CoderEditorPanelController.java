@@ -8,7 +8,6 @@ import cn.bitloom.project.git.GitFileStatus;
 import cn.bitloom.project.git.GitStatusService;
 import cn.bitloom.project.git.ProjectStatusStore;
 import cn.bitloom.vm.CodeHomePageViewModel;
-import jakarta.annotation.PreDestroy;
 import javafx.application.Platform;
 import javafx.beans.property.SimpleDoubleProperty;
 import javafx.fxml.Initializable;
@@ -25,7 +24,6 @@ import lombok.extern.slf4j.Slf4j;
 import org.fxmisc.flowless.VirtualizedScrollPane;
 import org.fxmisc.richtext.Caret;
 import org.fxmisc.richtext.CodeArea;
-import org.springframework.stereotype.Component;
 
 import java.io.IOException;
 import java.net.URL;
@@ -48,7 +46,6 @@ import java.util.function.IntFunction;
  * 所有视图以 Tab 形式管理，终端/文件支持多开。
  */
 @Slf4j
-@Component
 public class CoderEditorPanelController extends EditorPanelController implements Initializable {
 
     private final ProjectStatusStore projectStatusStore;
@@ -487,7 +484,6 @@ public class CoderEditorPanelController extends EditorPanelController implements
     }
 
     /** 应用关闭时释放编辑器实时 git 标注调度线程 */
-    @PreDestroy
     public void destroy() {
         gitRefreshExecutor.shutdownNow();
     }

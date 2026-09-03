@@ -1,22 +1,20 @@
 package cn.bitloom.agentic.memory;
 
+import cn.bitloom.harness.llm.ChatMessage;
+import cn.bitloom.harness.llm.ChatModel;
+import cn.bitloom.harness.loop.LoopContext;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.ai.chat.client.ChatClient;
 
 import java.io.IOException;
 import java.time.Instant;
-import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.BiPredicate;
-
-import org.springframework.ai.chat.client.ChatClientRequest;
 
 /**
  * 记忆自动整理器（对标 learn-claude-code s09 consolidation）。
@@ -30,7 +28,7 @@ import org.springframework.ai.chat.client.ChatClientRequest;
  * </ol>
  *
  * <p>同时提供 {@link #triggerWhen(AgentMemoryStore, int)} 给
- * {@code AutoMemoryToolsAdvisor.memoryConsolidationTrigger} 接上真实条件（文件数 ≥ 阈值）。
+ * {@code AgentMemoryInterceptor.memoryConsolidationTrigger} 接上真实条件（文件数 ≥ 阈值）。
  */
 public final class MemoryConsolidator {
 
@@ -49,11 +47,11 @@ public final class MemoryConsolidator {
 	}
 
 	/**
-	 * 给 AutoMemoryToolsAdvisor 的整合触发器：记忆文件数 ≥ threshold 时返回 true
+	 * 给 AgentMemoryInterceptor 的整合触发器：记忆文件数 ≥ threshold 时返回 true
 	 * （注入 reminder 文本，提示 LLM 记忆正在整理/可整理）。
 	 */
-	public static BiPredicate<ChatClientRequest, Instant> triggerWhen(AgentMemoryStore store, int threshold) {
-		return (request, instant) -> {
+	public static BiPredicate<LoopContext, Instant> triggerWhen(AgentMemoryStore store, int threshold) {
+		return (ctx, instant) -> {
 			try {
 				return countMemoryFiles(store) >= threshold;
 			}
@@ -66,7 +64,7 @@ public final class MemoryConsolidator {
 	/**
 	 * 条件整理：文件数 ≥ {@code threshold} 时执行 {@link #consolidate}，否则直接返回。
 	 */
-	public static void maybeConsolidate(AgentMemoryStore store, ChatClient chatClient, int threshold) {
+	public static void maybeConsolidate(AgentMemoryStore store, ChatModel chatModel, int threshold) {
 		try {
 			if (countMemoryFiles(store) < threshold) {
 				return;
@@ -76,13 +74,13 @@ public final class MemoryConsolidator {
 			logger.debug("[MemoryConsolidator] 统计记忆文件数失败: {}", e.getMessage());
 			return;
 		}
-		consolidate(store, chatClient);
+		consolidate(store, chatModel);
 	}
 
 	/**
 	 * 执行一次整理（快照 → LLM 重组 → 原子替换 → 失败恢复）。
 	 */
-	public static void consolidate(AgentMemoryStore store, ChatClient chatClient) {
+	public static void consolidate(AgentMemoryStore store, ChatModel chatModel) {
 		if (!consolidating.compareAndSet(false, true)) {
 			logger.debug("[MemoryConsolidator] 整理进行中，跳过本次触发");
 			return;
@@ -92,7 +90,7 @@ public final class MemoryConsolidator {
 			if (snapshot.isEmpty()) {
 				return;
 			}
-			List<MemoryFile> consolidated = generatePlan(chatClient, snapshot);
+			List<MemoryFile> consolidated = generatePlan(chatModel, snapshot);
 			if (consolidated.isEmpty()) {
 				logger.info("[MemoryConsolidator] 模型判定无需整理");
 				return;
@@ -133,7 +131,7 @@ public final class MemoryConsolidator {
 	 * LLM 生成整理后文件列表。输入全部记忆（不含 MEMORY.md 索引），
 	 * 输出 JSON 数组 [{path, content}]，content 为完整文件文本（含 frontmatter）。
 	 */
-	private static List<MemoryFile> generatePlan(ChatClient chatClient, Map<String, String> snapshot) {
+	private static List<MemoryFile> generatePlan(ChatModel chatModel, Map<String, String> snapshot) {
 		StringBuilder input = new StringBuilder();
 		snapshot.forEach((path, content) -> {
 			if (MEMORY_INDEX_FILE.equals(path)) {
@@ -154,7 +152,17 @@ public final class MemoryConsolidator {
 				4. 只输出 JSON 数组 [{"path":"xxx.md","content":"完整文件内容"}]，不要任何其它内容
 				""".formatted(input);
 
-		String content = chatClient.prompt().user(prompt).call().content();
+		// 流式聚合文本（零工具）后阻塞返回完整输出
+		StringBuilder collected = new StringBuilder();
+		chatModel.stream(List.of(ChatMessage.user(prompt)), List.of(), null)
+				.doOnNext(chunk -> {
+					if (chunk.deltaText() != null) {
+						collected.append(chunk.deltaText());
+					}
+				})
+				.blockLast();
+		String content = collected.toString();
+
 		try {
 			int start = content.indexOf('[');
 			int end = content.lastIndexOf(']');
@@ -259,7 +267,7 @@ public final class MemoryConsolidator {
 		return null;
 	}
 
-	/** 供 MemoryExtractionHook 复用：构建与工具写入一致的记忆文件文本 */
+	/** 供 MemoryExtractionInterceptor 复用：构建与工具写入一致的记忆文件文本 */
 	public static String buildMemoryFileContent(String name, String description, String type, String body) {
 		return """
 				---
@@ -272,7 +280,7 @@ public final class MemoryConsolidator {
 				""".formatted(name, description, type, body);
 	}
 
-	/** 供 MemoryExtractionHook 复用：构建索引行 */
+	/** 供 MemoryExtractionInterceptor 复用：构建索引行 */
 	public static String buildIndexLine(String title, String filename, String hook) {
 		return "- [" + title + "](" + filename + ") — " + hook;
 	}

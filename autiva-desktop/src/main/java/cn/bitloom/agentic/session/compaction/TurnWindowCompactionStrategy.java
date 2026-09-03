@@ -19,11 +19,10 @@ package cn.bitloom.agentic.session.compaction;
 import java.util.ArrayList;
 import java.util.List;
 
-import org.springframework.ai.chat.messages.MessageType;
+import cn.bitloom.harness.llm.Role;
 import cn.bitloom.agentic.event.MessageEvent;
-import org.springframework.ai.tokenizer.JTokkitTokenCountEstimator;
-import org.springframework.ai.tokenizer.TokenCountEstimator;
-import org.springframework.util.Assert;
+import cn.bitloom.harness.llm.TokenCountEstimator;
+import cn.bitloom.util.Assert;
 
 /**
  * Compaction strategy that retains only the last {@code maxTurns} complete
@@ -31,7 +30,7 @@ import org.springframework.util.Assert;
  *
  * <h3>What is a turn?</h3>
  * <p>
- * A turn begins with a {@link MessageType#USER} message and ends just before the next
+ * A turn begins with a {@link Role#USER} message and ends just before the next
  * user message. It includes every event the agent produced in response: assistant
  * messages, tool calls, tool results, and any additional assistant follow-ups. A turn is
  * the atomic unit of a conversation.
@@ -88,7 +87,7 @@ public final class TurnWindowCompactionStrategy implements CompactionStrategy {
 		int firstUserIdx = 0;
 		while (firstUserIdx < real.size()
 				&& !(real.get(firstUserIdx).isRootEvent()
-						&& real.get(firstUserIdx).getMessageType() == MessageType.USER)) {
+						&& real.get(firstUserIdx).getMessageType() == Role.USER)) {
 			preamble.add(real.get(firstUserIdx));
 			firstUserIdx++;
 		}
@@ -124,7 +123,7 @@ public final class TurnWindowCompactionStrategy implements CompactionStrategy {
 
 	/**
 	 * Groups a flat list of events into turns. Each turn starts with a root-level
-	 * ({@code branch == null}) {@link MessageType#USER} event. Sub-agent branch events are
+	 * ({@code branch == null}) {@link Role#USER} event. Sub-agent branch events are
 	 * grouped with the enclosing root turn. Assumes {@code events} begins with a root user
 	 * message (preamble has already been stripped).
 	 */
@@ -133,7 +132,7 @@ public final class TurnWindowCompactionStrategy implements CompactionStrategy {
 		List<MessageEvent> currentTurn = null;
 
 		for (MessageEvent event : events) {
-			if (event.isRootEvent() && event.getMessageType() == MessageType.USER) {
+			if (event.isRootEvent() && event.getMessageType() == Role.USER) {
 				if (currentTurn != null) {
 					turns.add(currentTurn);
 				}
@@ -161,7 +160,7 @@ public final class TurnWindowCompactionStrategy implements CompactionStrategy {
 
 		private int maxTurns = DEFAULT_MAX_TURNS;
 
-		private TokenCountEstimator tokenCountEstimator = new JTokkitTokenCountEstimator();
+		private TokenCountEstimator tokenCountEstimator = new TokenCountEstimator();
 
 		private Builder() {
 		}

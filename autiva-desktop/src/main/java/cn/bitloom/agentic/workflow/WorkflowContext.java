@@ -1,7 +1,7 @@
 package cn.bitloom.agentic.workflow;
 
 import cn.bitloom.agentic.agent.Agent;
-import cn.bitloom.agentic.agent.RuntimeContext;
+import cn.bitloom.harness.loop.LoopContext;
 import cn.bitloom.agentic.agent.SubAgentFactory;
 import cn.bitloom.agentic.event.MessageEvent;
 import cn.bitloom.agentic.session.Session;
@@ -124,7 +124,7 @@ public class WorkflowContext {
 
     private String runAgent(String definition, String prompt, String branch) {
         Agent agent = factory.build(session, definition, branch, projectPath, null, null);
-        RuntimeContext ctx = RuntimeContext.builder()
+        LoopContext ctx = LoopContext.builder()
                 .sessionId(session.id())
                 .userId(session.userId())
                 .branch(branch)

@@ -6,13 +6,11 @@ import javafx.beans.property.*;
 import javafx.collections.FXCollections;
 import javafx.collections.ObservableList;
 import lombok.Getter;
-import org.springframework.stereotype.Component;
 
 /**
  * 画布页面视图模型。
  * 管理画布状态、工具切换和元素属性。
  */
-@Component
 @Getter
 public class CanvasPageViewModel {
 

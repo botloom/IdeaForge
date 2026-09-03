@@ -3,12 +3,9 @@ package cn.bitloom.config;
 import cn.bitloom.agentic.model.ModelConfig;
 import cn.bitloom.agentic.session.SessionIsolationEnum;
 import cn.bitloom.constant.AppConstants;
-import jakarta.annotation.PostConstruct;
 import lombok.Getter;
 import lombok.Setter;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Value;
-import org.springframework.context.annotation.Configuration;
 import org.yaml.snakeyaml.DumperOptions;
 import org.yaml.snakeyaml.Yaml;
 
@@ -24,30 +21,21 @@ import java.util.Map;
 @Setter
 @Getter
 @Slf4j
-@Configuration
 public class ConfigManager {
 
-    @Value("${app.session.isolation}")
-    private SessionIsolationEnum isolation;
-    @Value("${app.search.bocha-api-key:}")
-    private String bochaApiKey;
+    private SessionIsolationEnum isolation = SessionIsolationEnum.PER_PEER;
+    private String bochaApiKey = "";
 
     /** 每轮对话的工具调用预算（防 LLM 工具调用死循环；编码任务需覆盖读文件+修改+编译验证多轮） */
-    @Value("${app.agent.max-tool-calls:150}")
-    private int maxToolCalls;
+    private int maxToolCalls = 150;
 
-    @Value("${spring.ai.deepseek.chat.base-url:}")
-    private String deepseekBaseUrl;
-    @Value("${spring.ai.deepseek.chat.completions-path:/v1/chat/completions}")
-    private String deepseekCompletionsPath;
-    @Value("${spring.ai.deepseek.chat.api-key:}")
-    private String deepseekApiKey;
-    @Value("${spring.ai.deepseek.chat.options.model:deepseek-chat}")
-    private String deepseekChatModel;
+    private String deepseekBaseUrl = "";
+    private String deepseekCompletionsPath = "/v1/chat/completions";
+    private String deepseekApiKey = "";
+    private String deepseekChatModel = "deepseek-chat";
 
     /** 当前选中的模型 id（未配置时为空，取第一个模型） */
-    @Value("${app.models.selected:}")
-    private String selectedModelId;
+    private String selectedModelId = "";
 
     /** 多模型列表（app.models.list） */
     private List<Map<String, Object>> modelList = new ArrayList<>();
@@ -55,31 +43,56 @@ public class ConfigManager {
     /** 兼容读入旧 deepseek 单模型配置：迁移为列表首项 */
     private boolean migratedFromDeepseek = false;
 
-    @PostConstruct
-    public void loadModels() {
+    public ConfigManager() {
+        load();
+    }
+
+    /** 从 ~/.autiva/settings.yaml 读取配置并填充字段（替代 @Value 注入）。 */
+    private void load() {
         try {
             Map<String, Object> root = loadYaml();
-            Object selected = getPath(root, "app", "models", "selected");
-            if (selected instanceof String s && !s.isBlank()) {
-                this.selectedModelId = s;
-            }
-            Object list = getPath(root, "app", "models", "list");
-            if (list instanceof List<?> items && !items.isEmpty()) {
-                this.modelList = new ArrayList<>();
-                for (Object item : items) {
-                    if (item instanceof Map<?, ?> map) {
-                        Map<String, Object> m = new LinkedHashMap<>();
-                        map.forEach((k, v) -> m.put(String.valueOf(k), v));
-                        this.modelList.add(m);
-                    }
+            Object isolationVal = getPath(root, "app", "session", "isolation");
+            if (isolationVal instanceof String s && !s.isBlank()) {
+                try {
+                    this.isolation = SessionIsolationEnum.valueOf(s);
+                } catch (IllegalArgumentException e) {
+                    log.warn("未知的会话隔离级别: {}", s);
                 }
-                return;
             }
-            // 旧配置迁移：无列表时用 deepseek 单模型生成首项
-            migrateFromDeepseek(root);
+            this.bochaApiKey = str(getPath(root, "app", "search", "bocha-api-key"));
+            Object maxCalls = getPath(root, "app", "agent", "max-tool-calls");
+            if (maxCalls instanceof Number n) {
+                this.maxToolCalls = n.intValue();
+            }
+            this.deepseekBaseUrl = str(getPath(root, "spring", "ai", "deepseek", "chat", "base-url"));
+            this.deepseekCompletionsPath = str(getPath(root, "spring", "ai", "deepseek", "chat", "completions-path"));
+            this.deepseekApiKey = str(getPath(root, "spring", "ai", "deepseek", "chat", "api-key"));
+            this.deepseekChatModel = str(getPath(root, "spring", "ai", "deepseek", "chat", "options", "model"));
+            loadModels(root);
         } catch (Exception e) {
             log.error("读取模型配置失败", e);
         }
+    }
+
+    private void loadModels(Map<String, Object> root) {
+        Object selected = getPath(root, "app", "models", "selected");
+        if (selected instanceof String s && !s.isBlank()) {
+            this.selectedModelId = s;
+        }
+        Object list = getPath(root, "app", "models", "list");
+        if (list instanceof List<?> items && !items.isEmpty()) {
+            this.modelList = new ArrayList<>();
+            for (Object item : items) {
+                if (item instanceof Map<?, ?> map) {
+                    Map<String, Object> m = new LinkedHashMap<>();
+                    map.forEach((k, v) -> m.put(String.valueOf(k), v));
+                    this.modelList.add(m);
+                }
+            }
+            return;
+        }
+        // 旧配置迁移：无列表时用 deepseek 单模型生成首项
+        migrateFromDeepseek(root);
     }
 
     @SuppressWarnings("unchecked")

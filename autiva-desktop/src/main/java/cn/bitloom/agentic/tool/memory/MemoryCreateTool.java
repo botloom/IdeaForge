@@ -4,12 +4,12 @@ import java.io.IOException;
 
 import org.jspecify.annotations.NonNull;
 import org.jspecify.annotations.Nullable;
-import org.springframework.ai.chat.model.ToolContext;
-import org.springframework.ai.tool.annotation.ToolParam;
+import cn.bitloom.harness.tool.ToolContext;
+import cn.bitloom.harness.tool.ToolParam;
 
 import cn.bitloom.agentic.memory.AgentMemoryStore;
-import cn.bitloom.agentic.tool.AbstractTool;
-import cn.bitloom.agentic.tool.ToolResult;
+import cn.bitloom.harness.tool.AbstractTool;
+import cn.bitloom.harness.tool.ToolResult;
 
 /**
  * 记忆创建工具，在持久记忆存储中创建新文件。

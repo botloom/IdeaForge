@@ -2,12 +2,12 @@ package cn.bitloom.agentic.tool.team;
 
 import cn.bitloom.agentic.team.MailboxService;
 import cn.bitloom.agentic.team.TeammateRegistry;
-import cn.bitloom.agentic.tool.AbstractTool;
-import cn.bitloom.agentic.tool.ToolResult;
+import cn.bitloom.harness.tool.AbstractTool;
+import cn.bitloom.harness.tool.ToolResult;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.ai.chat.model.ToolContext;
-import org.springframework.ai.tool.annotation.ToolParam;
-import org.springframework.util.Assert;
+import cn.bitloom.harness.tool.ToolContext;
+import cn.bitloom.harness.tool.ToolParam;
+import cn.bitloom.util.Assert;
 
 /**
  * 关闭队友工具（仅 Lead 使用）— 类型化协议校验（requestId + workVersion）。

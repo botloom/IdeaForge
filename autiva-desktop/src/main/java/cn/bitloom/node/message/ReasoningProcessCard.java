@@ -8,7 +8,7 @@ import javafx.scene.control.Label;
 import javafx.scene.layout.HBox;
 import javafx.scene.layout.VBox;
 import lombok.Setter;
-import org.springframework.ai.chat.messages.MessageType;
+import cn.bitloom.harness.llm.Role;
 
 import java.util.function.Consumer;
 
@@ -135,9 +135,9 @@ public class ReasoningProcessCard extends MessageCard {
     }
 
     @Override
-    public MessageType getMessageType() {
+    public Role getMessageType() {
         // 助手侧内容，左对齐
-        return MessageType.ASSISTANT;
+        return Role.ASSISTANT;
     }
 
     @Override

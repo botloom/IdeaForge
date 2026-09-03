@@ -2,7 +2,6 @@ package cn.bitloom.project.git;
 
 import javafx.beans.property.BooleanProperty;
 import javafx.beans.property.SimpleBooleanProperty;
-import org.springframework.stereotype.Component;
 
 import java.nio.file.Path;
 import java.util.Map;
@@ -14,7 +13,6 @@ import java.util.Set;
  * 持有项目根、文件状态映射与含改动目录集合，并对外暴露布尔翻转刷新信号
  * （风格与 Store.refreshHistory 一致），供目录树与文件视图订阅刷新。
  */
-@Component
 public class ProjectStatusStore {
 
     private final GitStatusService gitStatusService;

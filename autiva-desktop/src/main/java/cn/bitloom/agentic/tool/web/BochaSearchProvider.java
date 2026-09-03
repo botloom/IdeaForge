@@ -1,11 +1,12 @@
 package cn.bitloom.agentic.tool.web;
 
+import cn.bitloom.util.JsonUtils;
+import org.apache.commons.lang3.StringUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.http.HttpStatusCode;
-import org.springframework.http.MediaType;
-import org.springframework.util.StringUtils;
-import org.springframework.web.client.RestClient;
+import reactor.core.publisher.Mono;
+import reactor.netty.ByteBufFlux;
+import reactor.netty.http.client.HttpClient;
 
 import java.util.*;
 
@@ -23,23 +24,22 @@ public class BochaSearchProvider implements SearchProvider {
 
     private static final String BOCHA_API_URL = "https://api.bochaai.com/v1/web-search";
 
-    private final RestClient restClient;
+    private final HttpClient httpClient;
 
     private final boolean configured;
 
     public BochaSearchProvider(String apiKey) {
-        this.configured = StringUtils.hasText(apiKey);
+        this.configured = StringUtils.isNotBlank(apiKey);
         if (!this.configured) {
             logger.warn("博查API密钥未配置，网络搜索功能不可用，请在设置页面配置 app.search.bocha-api-key");
-            this.restClient = null;
+            this.httpClient = null;
             return;
         }
-        this.restClient = RestClient.builder()
+        this.httpClient = HttpClient.create()
                 .baseUrl(BOCHA_API_URL)
-                .defaultHeader("Authorization", "Bearer " + apiKey)
-                .defaultHeader("Content-Type", MediaType.APPLICATION_JSON_VALUE)
-                .defaultHeader("Accept", MediaType.APPLICATION_JSON_VALUE)
-                .build();
+                .headers(h -> h.set("Authorization", "Bearer " + apiKey)
+                        .set("Content-Type", "application/json")
+                        .set("Accept", "application/json"));
     }
 
     @Override
@@ -56,16 +56,23 @@ public class BochaSearchProvider implements SearchProvider {
             requestBody.put("freshness", "noLimit");
             requestBody.put("summary", true);
 
-            Map<String, Object> response = this.restClient.post()
-                    .body(requestBody)
-                    .retrieve()
-                    .onStatus(HttpStatusCode::is4xxClientError, (request, errorResponse) -> {
-                        logger.error("博查API客户端错误: {} 查询: {}", errorResponse.getStatusCode(), query);
+            String responseBody = this.httpClient.headers(h -> h.set("Content-Type", "application/json"))
+                    .post()
+                    .send(ByteBufFlux.fromString(Mono.just(JsonUtils.toJson(requestBody))))
+                    .response((resp, content) -> {
+                        int status = resp.status().code();
+                        if (status >= 400 && status < 500) {
+                            logger.error("博查API客户端错误: {} 查询: {}", status, query);
+                        } else if (status >= 500) {
+                            logger.error("博查API服务器错误: {} 查询: {}", status, query);
+                        }
+                        return content.aggregate().asString();
                     })
-                    .onStatus(HttpStatusCode::is5xxServerError, (request, errorResponse) -> {
-                        logger.error("博查API服务器错误: {} 查询: {}", errorResponse.getStatusCode(), query);
-                    })
-                    .body(Map.class);
+                    .blockFirst();
+
+            Map<String, Object> response = responseBody == null || responseBody.isBlank()
+                    ? null
+                    : JsonUtils.mapper().readValue(responseBody, Map.class);
 
             if (response == null || response.isEmpty()) {
                 logger.warn("博查API对查询返回空响应: {}", query);

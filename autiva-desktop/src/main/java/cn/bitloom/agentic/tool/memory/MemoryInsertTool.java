@@ -5,12 +5,12 @@ import java.util.List;
 
 import org.jspecify.annotations.NonNull;
 import org.jspecify.annotations.Nullable;
-import org.springframework.ai.chat.model.ToolContext;
-import org.springframework.ai.tool.annotation.ToolParam;
+import cn.bitloom.harness.tool.ToolContext;
+import cn.bitloom.harness.tool.ToolParam;
 
 import cn.bitloom.agentic.memory.AgentMemoryStore;
-import cn.bitloom.agentic.tool.AbstractTool;
-import cn.bitloom.agentic.tool.ToolResult;
+import cn.bitloom.harness.tool.AbstractTool;
+import cn.bitloom.harness.tool.ToolResult;
 
 /**
  * 记忆插入工具，在现有记忆文件的特定行号插入文本。

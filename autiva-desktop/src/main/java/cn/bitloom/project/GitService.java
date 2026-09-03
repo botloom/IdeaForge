@@ -1,7 +1,6 @@
 package cn.bitloom.project;
 
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.stereotype.Component;
 
 import java.io.BufferedReader;
 import java.io.IOException;
@@ -18,7 +17,6 @@ import java.util.concurrent.TimeUnit;
  * 查询 Git 信息（如当前分支），并支持分支切换等本地操作
  */
 @Slf4j
-@Component
 public class GitService {
 
     private static final String GIT_DIR = ".git";

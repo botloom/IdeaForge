@@ -4,7 +4,6 @@ import cn.bitloom.agentic.tool.ToolUtils;
 import cn.bitloom.node.project.FileEntry;
 import cn.bitloom.node.project.LazyTreeItem;
 import javafx.scene.control.TreeItem;
-import org.springframework.stereotype.Component;
 
 import java.io.IOException;
 import java.nio.file.Files;
@@ -18,7 +17,6 @@ import java.util.stream.Stream;
  * 构建项目目录树，使用 LazyTreeItem 实现延迟加载和正确的目录展开行为。
  * 子节点扫描（文件系统 IO）在共享后台线程串行执行，避免阻塞 UI 线程。
  */
-@Component
 public class FileTreeService {
 
     /**

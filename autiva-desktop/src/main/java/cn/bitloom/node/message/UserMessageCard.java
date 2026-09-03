@@ -13,7 +13,7 @@ import javafx.scene.text.Font;
 import javafx.scene.text.Text;
 import javafx.scene.text.TextFlow;
 import lombok.Getter;
-import org.springframework.ai.chat.messages.MessageType;
+import cn.bitloom.harness.llm.Role;
 
 import java.util.Map;
 import java.util.function.Consumer;
@@ -108,7 +108,7 @@ public class UserMessageCard extends MessageCard {
     }
 
     @Override
-    public MessageType getMessageType() {
-        return MessageType.USER;
+    public Role getMessageType() {
+        return Role.USER;
     }
 }

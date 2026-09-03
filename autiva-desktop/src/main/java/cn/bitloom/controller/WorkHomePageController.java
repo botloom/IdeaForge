@@ -6,7 +6,6 @@ import cn.bitloom.vm.AbstractHomePageViewModel;
 import cn.bitloom.vm.WorkHomePageViewModel;
 import cn.bitloom.window.WindowManager;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.stereotype.Component;
 
 import java.util.List;
 
@@ -17,7 +16,6 @@ import java.util.List;
  * 预留扩展点供未来 work 模式专有 UI 和逻辑。
  */
 @Slf4j
-@Component
 public class WorkHomePageController extends AbstractHomePageController {
 
     private final WorkHomePageViewModel viewModel;

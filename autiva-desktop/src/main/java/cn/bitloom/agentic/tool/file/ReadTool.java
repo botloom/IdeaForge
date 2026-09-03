@@ -1,11 +1,11 @@
 package cn.bitloom.agentic.tool.file;
 
-import cn.bitloom.agentic.tool.AbstractTool;
-import cn.bitloom.agentic.tool.ToolResult;
 import cn.bitloom.agentic.util.TokenEstimator;
+import cn.bitloom.harness.tool.AbstractTool;
+import cn.bitloom.harness.tool.ToolResult;
+import cn.bitloom.harness.tool.ToolContext;
+import cn.bitloom.harness.tool.ToolParam;
 import org.jspecify.annotations.NonNull;
-import org.springframework.ai.chat.model.ToolContext;
-import org.springframework.ai.tool.annotation.ToolParam;
 
 import java.io.BufferedReader;
 import java.io.File;

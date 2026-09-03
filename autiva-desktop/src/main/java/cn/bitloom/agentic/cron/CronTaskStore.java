@@ -4,7 +4,6 @@ import cn.bitloom.constant.AppConstants;
 import cn.bitloom.util.JsonUtils;
 import com.fasterxml.jackson.core.type.TypeReference;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.stereotype.Component;
 
 import java.io.IOException;
 import java.nio.file.Files;
@@ -24,7 +23,6 @@ import java.util.stream.Stream;
  * 进程重启后通过 {@link #loadAllSessions()} 恢复任务定义。
  */
 @Slf4j
-@Component
 public class CronTaskStore {
 
     private static final String CRON_TASKS_FILE = "cron-tasks.json";

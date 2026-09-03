@@ -1,7 +1,6 @@
 package cn.bitloom.agentic.workflow;
 
 import cn.bitloom.agentic.workflow.builtin.CodeReviewWorkflow;
-import org.springframework.stereotype.Component;
 
 import java.util.List;
 import java.util.Map;
@@ -15,7 +14,6 @@ import java.util.function.BiFunction;
  * <p>模型只见 name + description + argsSchema，<strong>不见可执行代码</strong> —
  * 编排形状固定在宿主代码里（s16 纪律），模型只负责选择与传参。
  */
-@Component
 public class WorkflowRegistry {
 
     /** 工作流元数据：name（模型可见名）、description、argsSchema、编排函数 */

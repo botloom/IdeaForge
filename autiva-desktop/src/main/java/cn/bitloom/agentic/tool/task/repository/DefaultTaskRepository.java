@@ -1,6 +1,5 @@
 package cn.bitloom.agentic.tool.task.repository;
 
-import org.springframework.stereotype.Component;
 
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
@@ -14,7 +13,6 @@ import java.util.function.Supplier;
  * TaskRepository的默认实现，使用线程池管理后台任务。
  *
  */
-@Component
 public class DefaultTaskRepository implements TaskRepository {
 
 	private final Map<String, BackgroundTask> backgroundTasks = new ConcurrentHashMap<>();

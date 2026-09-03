@@ -3,17 +3,10 @@ package cn.bitloom.agentic.skill;
 import cn.bitloom.agentic.util.MarkdownParser;
 import cn.bitloom.constant.AppConstants;
 import cn.bitloom.exception.StorageException;
-import jakarta.annotation.PostConstruct;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.core.io.ClassPathResource;
-import org.springframework.core.io.Resource;
-import org.springframework.core.io.support.PathMatchingResourcePatternResolver;
-import org.springframework.stereotype.Component;
 
 import java.io.*;
-import java.net.JarURLConnection;
 import java.net.URI;
-import java.net.URL;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
@@ -22,21 +15,17 @@ import java.nio.file.*;
 import java.time.Duration;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.jar.JarEntry;
-import java.util.jar.JarFile;
 import java.util.stream.Stream;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipInputStream;
 
 @Slf4j
-@Component
 public class SkillManager {
 
     private static final String SKILL_FILE_NAME = "SKILL.md";
 
     private final Map<String, Skill> skills = new ConcurrentHashMap<>();
 
-    @PostConstruct
     public void init() {
         this.loadSkills();
     }
@@ -141,129 +130,6 @@ public class SkillManager {
             result.addAll(loadDirectory(rootDirectory));
         }
         return result;
-    }
-
-    public List<Skill> loadResources(List<Resource> skillsResources) {
-        List<Skill> result = new ArrayList<>();
-        for (Resource resource : skillsResources) {
-            result.addAll(loadResource(resource));
-        }
-        return result;
-    }
-
-    public List<Skill> loadResource(Resource... skillsResources) {
-        List<Skill> result = new ArrayList<>();
-        for (Resource resource : skillsResources) {
-            try {
-                String path = resource.getFile().toPath().toAbsolutePath().toString();
-                result.addAll(loadDirectory(path));
-            } catch (IOException ex) {
-                try {
-                    result.addAll(loadJarResource(resource));
-                } catch (IOException jarEx) {
-                    log.error("Failed to load skills from resource: {}", resource, jarEx);
-                }
-            }
-        }
-        return result;
-    }
-
-    private List<Skill> loadJarResource(Resource resource) throws IOException {
-        URL resourceUrl;
-        try {
-            resourceUrl = resource.getURL();
-        } catch (FileNotFoundException ex) {
-            if (resource instanceof ClassPathResource classPathResource) {
-                return loadFromClasspath(classPathResource.getPath());
-            }
-            throw ex;
-        }
-
-        String protocol = resourceUrl.getProtocol();
-        if (!"jar".equals(protocol)) {
-            throw new IOException("Unsupported protocol for JAR loading: " + protocol);
-        }
-
-        JarURLConnection jarConnection = (JarURLConnection) resourceUrl.openConnection();
-        String entryPrefix = jarConnection.getEntryName();
-        if (!entryPrefix.endsWith("/")) {
-            entryPrefix = entryPrefix + "/";
-        }
-        return scanJarForSkills(jarConnection.getJarFile(), entryPrefix);
-    }
-
-    private List<Skill> loadFromClasspath(String classpathPrefix) throws IOException {
-        PathMatchingResourcePatternResolver resolver = new PathMatchingResourcePatternResolver();
-        Resource[] resources = resolver.getResources("classpath*:" + classpathPrefix + "/**/SKILL.md");
-
-        if (resources.length > 0) {
-            List<Skill> result = new ArrayList<>();
-            for (Resource skillResource : resources) {
-                try (InputStream is = skillResource.getInputStream()) {
-                    String basePath = deriveBasePathFromUrl(skillResource.getURL());
-                    result.add(parseSkill(is, basePath));
-                }
-            }
-            return result;
-        }
-
-        return scanClasspathJarsForSkills(classpathPrefix);
-    }
-
-    private List<Skill> scanClasspathJarsForSkills(String classpathPrefix) throws IOException {
-        String prefix = classpathPrefix.endsWith("/") ? classpathPrefix : classpathPrefix + "/";
-
-        ClassLoader classLoader = Thread.currentThread().getContextClassLoader();
-        if (classLoader == null) {
-            classLoader = SkillManager.class.getClassLoader();
-        }
-
-        List<Skill> result = new ArrayList<>();
-        Enumeration<URL> manifests = classLoader.getResources("META-INF/MANIFEST.MF");
-        while (manifests.hasMoreElements()) {
-            URL manifestUrl = manifests.nextElement();
-            if (!"jar".equals(manifestUrl.getProtocol())) {
-                continue;
-            }
-            JarURLConnection jarConnection = (JarURLConnection) manifestUrl.openConnection();
-            result.addAll(scanJarForSkills(jarConnection.getJarFile(), prefix));
-        }
-        return result;
-    }
-
-    private List<Skill> scanJarForSkills(JarFile jarFile, String entryPrefix) throws IOException {
-        List<Skill> result = new ArrayList<>();
-        Enumeration<JarEntry> entries = jarFile.entries();
-
-        while (entries.hasMoreElements()) {
-            JarEntry entry = entries.nextElement();
-            String entryName = entry.getName();
-
-            if (!entry.isDirectory() && entryName.startsWith(entryPrefix) && entryName.endsWith("/SKILL.md")) {
-                try (InputStream is = jarFile.getInputStream(entry)) {
-                    result.add(parseSkill(is, entryName));
-                }
-            }
-        }
-        return result;
-    }
-
-    private Skill parseSkill(InputStream is, String entryPath) throws IOException {
-        String markdown = new String(is.readAllBytes(), StandardCharsets.UTF_8);
-        MarkdownParser parser = new MarkdownParser(markdown);
-        String basePath = entryPath.endsWith("/SKILL.md")
-                ? entryPath.substring(0, entryPath.lastIndexOf('/'))
-                : entryPath;
-        return new Skill(basePath, parser.getFrontMatter(), parser.getContent());
-    }
-
-    private String deriveBasePathFromUrl(URL skillUrl) {
-        String urlStr = skillUrl.toString();
-        String basePath = urlStr.substring(0, urlStr.lastIndexOf("/SKILL.md"));
-        if (basePath.contains("!/")) {
-            basePath = basePath.substring(basePath.indexOf("!/") + 2);
-        }
-        return basePath;
     }
 
     public Skill importSkillFromZip(Path zipPath) throws IOException {

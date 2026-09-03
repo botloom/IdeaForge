@@ -5,13 +5,11 @@ import cn.bitloom.agentic.permission.model.ApprovalDecision;
 import cn.bitloom.util.JsonUtils;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.stereotype.Component;
 
 /**
  * Command 工具的审批策略 — 委托 {@link ApprovalService#checkAndApprove}。
  */
 @Slf4j
-@Component
 @RequiredArgsConstructor
 public class CommandApprovalStrategy implements ToolApprovalStrategy {
 

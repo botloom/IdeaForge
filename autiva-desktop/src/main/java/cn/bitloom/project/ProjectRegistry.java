@@ -4,7 +4,6 @@ import cn.bitloom.constant.AppConstants;
 import cn.bitloom.util.JsonUtils;
 import com.fasterxml.jackson.core.type.TypeReference;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.stereotype.Component;
 
 import java.io.IOException;
 import java.nio.file.Files;
@@ -22,7 +21,6 @@ import java.util.concurrent.CopyOnWriteArrayList;
  * 管理已注册的项目列表，持久化到 ~/.autiva/projects/registry.json
  */
 @Slf4j
-@Component
 public class ProjectRegistry {
 
     private final List<ProjectInfo> projects = new CopyOnWriteArrayList<>();

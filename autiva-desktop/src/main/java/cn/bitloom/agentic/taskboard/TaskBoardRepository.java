@@ -2,7 +2,6 @@ package cn.bitloom.agentic.taskboard;
 
 import cn.bitloom.util.JsonUtils;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.stereotype.Component;
 
 import java.io.IOException;
 import java.io.RandomAccessFile;
@@ -31,7 +30,6 @@ import java.util.stream.Stream;
  * 这是 P2-2 多智能体并发认领同一任务的基础。
  */
 @Slf4j
-@Component
 public class TaskBoardRepository {
 
     private static final String AUTIVA_DIR = ".autiva";

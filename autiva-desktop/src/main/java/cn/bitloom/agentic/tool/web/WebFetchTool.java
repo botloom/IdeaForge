@@ -1,12 +1,12 @@
 package cn.bitloom.agentic.tool.web;
 
-import cn.bitloom.agentic.tool.AbstractTool;
-import cn.bitloom.agentic.tool.ToolResult;
+import cn.bitloom.harness.tool.AbstractTool;
+import cn.bitloom.harness.tool.ToolResult;
 import com.vladsch.flexmark.html2md.converter.FlexmarkHtmlConverter;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.ai.chat.model.ToolContext;
-import org.springframework.ai.tool.annotation.ToolParam;
-import org.springframework.util.StringUtils;
+import cn.bitloom.harness.tool.ToolContext;
+import cn.bitloom.harness.tool.ToolParam;
+import org.apache.commons.lang3.StringUtils;
 
 import java.io.IOException;
 import java.net.URI;
@@ -105,7 +105,7 @@ public class WebFetchTool extends AbstractTool<WebFetchTool.Input> implements Au
     public ToolResult execute(Input input, ToolContext context) {
         String url = input.url();
 
-        if (!StringUtils.hasText(url)) {
+        if (!StringUtils.isNotBlank(url)) {
             return ToolResult.error("URL不能为空或null", "错误：URL不能为空或null");
         }
 

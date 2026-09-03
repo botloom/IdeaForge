@@ -38,13 +38,10 @@ import cn.bitloom.agentic.util.GuiQuestionHandler;
 import cn.bitloom.agentic.util.GuiTodoEventHandler;
 import cn.bitloom.bridge.desktop.ToolUIBridge;
 import cn.bitloom.config.ConfigManager;
-import jakarta.annotation.PostConstruct;
+import cn.bitloom.harness.tool.AbstractTool;
+import cn.bitloom.harness.tool.ToolCallback;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.ai.mcp.AsyncMcpToolCallbackProvider;
-import org.springframework.ai.tool.ToolCallback;
-import org.springframework.beans.factory.ObjectProvider;
-import org.springframework.stereotype.Component;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -56,7 +53,6 @@ import java.util.Set;
  * 注册所有可用工具，根据智能体配置（白名单/黑名单）选择工具。
  */
 @Slf4j
-@Component
 @RequiredArgsConstructor
 public class Toolkit {
 
@@ -64,7 +60,6 @@ public class Toolkit {
     private final ConfigManager configManager;
     private final CronManager cronManager;
     private final ToolUIBridge toolUIBridge;
-    private final AsyncMcpToolCallbackProvider mcpToolCallbackProvider;
     private final McpConnectionManager mcpConnectionManager;
     private final TaskRepository taskRepository;
     private final ProcessManager processManager;
@@ -79,12 +74,6 @@ public class Toolkit {
     private final cn.bitloom.agentic.workflow.WorkflowRegistry workflowRegistry;
     private final cn.bitloom.agentic.goal.GoalManager goalManager;
     private final ModelFactory modelFactory;
-    private final ObjectProvider<Toolkit> selfProvider;
-
-    @PostConstruct
-    public void init() {
-
-    }
 
     /**
      * 根据 AgentDefinition 构建工具回调列表
@@ -95,8 +84,7 @@ public class Toolkit {
             buildAllTools().stream().map(AbstractTool::toToolCallback).toList()
         );
 
-        // 2. 追加 MCP 工具：启动时全量注入（spring.ai.mcp.client 配置）+ 运行时经 McpConnect 连接的
-        callbacks.addAll(List.of(mcpToolCallbackProvider.getToolCallbacks()));
+        // 2. 追加 MCP 工具：运行时经 McpConnect 连接的
         callbacks.addAll(mcpConnectionManager.getRuntimeToolCallbacks());
 
         // 3. 根据配置过滤
@@ -105,7 +93,7 @@ public class Toolkit {
         // 4. 子智能体不提供 TodoWrite：todo 统一由主智能体维护并展示在面板视图
         if (definition.kind() == cn.bitloom.agentic.agent.AgentKind.SUBAGENT) {
             filtered = filtered.stream()
-                    .filter(tc -> !"TodoWrite".equals(tc.getToolDefinition().name()))
+                    .filter(tc -> !"TodoWrite".equals(tc.definition().name()))
                     .toList();
         }
 
@@ -133,6 +121,21 @@ public class Toolkit {
     private boolean isTaskToolAllowed(AgentDefinition definition) {
         List<String> whitelist = definition.tools();
         return whitelist.isEmpty() || whitelist.contains("Task");
+    }
+
+    /**
+     * 按名称构建内置工具回调（供动态插件 delegate 解析）。
+     * 不存在返回 null。每次调用重新构建（工具多为无状态轻量对象）。
+     */
+    public ToolCallback buildToolByName(String toolName) {
+        if (toolName == null || toolName.isBlank()) {
+            return null;
+        }
+        return buildAllTools().stream()
+                .filter(t -> toolName.equals(t.getName()))
+                .findFirst()
+                .map(AbstractTool::toToolCallback)
+                .orElse(null);
     }
 
     /**
@@ -226,7 +229,7 @@ public class Toolkit {
         if (!whitelist.isEmpty()) {
             Set<String> allowed = Set.copyOf(whitelist);
             return callbacks.stream()
-                .filter(tc -> isMcpExempt(tc.getToolDefinition().name()) || allowed.contains(tc.getToolDefinition().name()))
+                .filter(tc -> isMcpExempt(tc.definition().name()) || allowed.contains(tc.definition().name()))
                 .toList();
         }
         return callbacks;

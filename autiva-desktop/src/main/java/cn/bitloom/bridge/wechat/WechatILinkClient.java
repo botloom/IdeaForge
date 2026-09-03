@@ -6,15 +6,12 @@ import cn.bitloom.bridge.wechat.ilink.model.WeixinMessage;
 import cn.bitloom.util.JsonUtils;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
-import jakarta.annotation.PostConstruct;
-import jakarta.annotation.PreDestroy;
 import javafx.application.Platform;
 import javafx.beans.property.ReadOnlyObjectProperty;
 import javafx.beans.property.SimpleObjectProperty;
 import lombok.Getter;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.stereotype.Component;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -24,7 +21,6 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 @Slf4j
-@Component
 @RequiredArgsConstructor
 public class WechatILinkClient {
 
@@ -55,7 +51,6 @@ public class WechatILinkClient {
         return state.get() == State.CONNECTED;
     }
 
-    @PostConstruct
     public void init() {
         apiClient = new ILinkApiClient(properties);
 
@@ -216,7 +211,6 @@ public class WechatILinkClient {
         }
     }
 
-    @PreDestroy
     public void destroy() {
         stopPolling();
         if (pollingExecutor != null && !pollingExecutor.isShutdown()) {

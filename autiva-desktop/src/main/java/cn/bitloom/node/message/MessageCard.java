@@ -1,7 +1,7 @@
 package cn.bitloom.node.message;
 
 import javafx.scene.layout.VBox;
-import org.springframework.ai.chat.messages.MessageType;
+import cn.bitloom.harness.llm.Role;
 
 /**
  * 消息卡片抽象基类，消除 ChatMessage 中间层。
@@ -13,7 +13,7 @@ public abstract class MessageCard extends VBox {
     /**
      * 获取消息类型
      */
-    public abstract MessageType getMessageType();
+    public abstract Role getMessageType();
 
     /**
      * 获取消息内容

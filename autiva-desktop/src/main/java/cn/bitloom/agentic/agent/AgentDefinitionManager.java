@@ -3,11 +3,7 @@ package cn.bitloom.agentic.agent;
 import cn.bitloom.agentic.agent.AgentDefinition.WorkspaceConfig;
 import cn.bitloom.constant.AppConstants;
 import cn.bitloom.util.JsonUtils;
-import jakarta.annotation.PostConstruct;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.core.io.Resource;
-import org.springframework.core.io.support.PathMatchingResourcePatternResolver;
-import org.springframework.stereotype.Component;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
@@ -25,7 +21,6 @@ import java.util.stream.Stream;
  * 提供统一的定义加载和查询接口，供 FileSystemSessionManager 和 TaskTool 共享。
  */
 @Slf4j
-@Component
 public class AgentDefinitionManager {
 
     private final Map<String, AgentDefinition> definitions = new ConcurrentHashMap<>();
@@ -33,7 +28,6 @@ public class AgentDefinitionManager {
     /**
      * 初始化：加载所有定义
      */
-    @PostConstruct
     public void init() {
         loadMainDefinitions();
         loadSubagentDefinitions();
@@ -138,6 +132,46 @@ public class AgentDefinitionManager {
                 .filter(e -> e.getValue().kind() == AgentKind.MAIN)
                 .map(Map.Entry::getKey)
                 .collect(java.util.stream.Collectors.toSet());
+    }
+
+    /**
+     * 重新加载单个定义（自修改热重载）。
+     * <p>
+     * 按主智能体 → 子智能体顺序查找 agent.md 并刷新缓存，供智能体修改自身
+     * 或子智能体定义后当轮生效。
+     *
+     * @param name 主智能体 ID 或子智能体名称
+     * @return true 表示重载成功；定义文件不存在或解析失败返回 false
+     */
+    public boolean reloadDefinition(String name) {
+        if (name == null || name.isBlank()) {
+            return false;
+        }
+        Path mainMd = AppConstants.MainAgent.agentFile(name);
+        if (Files.exists(mainMd)) {
+            try {
+                AgentDefinition definition = AgentDefinition.fromMarkdown(mainMd).merge(loadWorkspaceConfig(name));
+                definitions.put(name, definition);
+                log.info("重载主智能体定义: {}", name);
+                return true;
+            } catch (Exception e) {
+                log.warn("重载主智能体定义失败: {}", mainMd, e);
+                return false;
+            }
+        }
+        Path subMd = AppConstants.Agents.subagentDir(name).resolve("agent.md");
+        if (Files.exists(subMd)) {
+            try {
+                AgentDefinition definition = AgentDefinition.fromMarkdown(subMd);
+                definitions.put(definition.name(), definition);
+                log.info("重载子智能体定义: {}", definition.name());
+                return true;
+            } catch (Exception e) {
+                log.warn("重载子智能体定义失败: {}", subMd, e);
+                return false;
+            }
+        }
+        return false;
     }
 
     /**

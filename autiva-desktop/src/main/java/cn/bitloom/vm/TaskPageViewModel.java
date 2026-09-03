@@ -9,7 +9,6 @@ import javafx.concurrent.Task;
 import lombok.Getter;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.stereotype.Component;
 
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
@@ -18,7 +17,6 @@ import java.util.Map;
 import java.util.stream.Collectors;
 
 @Slf4j
-@Component
 @RequiredArgsConstructor
 public class TaskPageViewModel {
 

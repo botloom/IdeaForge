@@ -9,14 +9,12 @@ import javafx.concurrent.Task;
 import lombok.Getter;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.stereotype.Component;
 
 import java.io.IOException;
 import java.nio.file.Path;
 import java.util.List;
 
 @Slf4j
-@Component
 @RequiredArgsConstructor
 public class SkillPageViewModel {
 

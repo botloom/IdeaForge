@@ -10,26 +10,25 @@ import javafx.stage.Modality;
 import javafx.stage.Stage;
 import javafx.stage.StageStyle;
 import javafx.stage.Window;
-import lombok.RequiredArgsConstructor;
+import javafx.util.Callback;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.context.ApplicationContext;
-import org.springframework.core.io.ClassPathResource;
-import org.springframework.stereotype.Component;
 
 import java.util.Objects;
 import java.util.function.Consumer;
 
 @Slf4j
-@Component
-@RequiredArgsConstructor
 public class WindowManager {
 
-    private final ApplicationContext applicationContext;
+    private final Callback<Class<?>, Object> controllerFactory;
+
+    public WindowManager(Callback<Class<?>, Object> controllerFactory) {
+        this.controllerFactory = controllerFactory;
+    }
 
     public <T> void showDialog(String fxmlPath, Window owner, Consumer<T> controllerInitializer) {
         try {
-            FXMLLoader loader = new FXMLLoader(new ClassPathResource(fxmlPath).getURL());
-            loader.setControllerFactory(applicationContext::getBean);
+            FXMLLoader loader = new FXMLLoader(getClass().getResource("/" + fxmlPath));
+            loader.setControllerFactory(controllerFactory);
             Parent root = loader.load();
             T controller = loader.getController();
 

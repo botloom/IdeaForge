@@ -16,7 +16,6 @@ import javafx.scene.layout.VBox;
 import javafx.stage.FileChooser;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.stereotype.Component;
 
 import java.io.File;
 import java.net.URL;
@@ -24,7 +23,6 @@ import java.nio.file.Path;
 import java.util.ResourceBundle;
 
 @Slf4j
-@Component
 @RequiredArgsConstructor
 public class SkillPageController implements Initializable, DialogHolder {
 

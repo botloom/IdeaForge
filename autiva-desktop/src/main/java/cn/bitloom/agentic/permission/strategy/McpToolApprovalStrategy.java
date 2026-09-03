@@ -6,7 +6,6 @@ import cn.bitloom.agentic.permission.McpHostPolicy.Decision;
 import cn.bitloom.agentic.permission.model.ApprovalDecision;
 import cn.bitloom.agentic.tool.mcp.McpConnectionManager;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.stereotype.Component;
 
 /**
  * MCP 工具的审批策略 — 宿主策略 {@link McpHostPolicy} 的执行入口。
@@ -18,7 +17,6 @@ import org.springframework.stereotype.Component;
  * <p>纪律：不读取 server 自述的 readOnlyHint，授权只来自宿主策略表。
  */
 @Slf4j
-@Component
 public class McpToolApprovalStrategy implements ToolApprovalStrategy {
 
     private static final String MCP_PREFIX = "mcp__";

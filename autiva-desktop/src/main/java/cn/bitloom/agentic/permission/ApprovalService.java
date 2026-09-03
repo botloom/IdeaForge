@@ -10,7 +10,6 @@ import cn.bitloom.bridge.desktop.ToolUIBridge;
 import cn.bitloom.util.JsonUtils;
 import com.fasterxml.jackson.databind.JsonNode;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.stereotype.Component;
 
 import java.nio.file.Path;
 import java.util.Map;
@@ -37,7 +36,6 @@ import java.util.concurrent.TimeoutException;
  * <p>文件流程：越界 → 查 store → 弹框，与命令共用尾部决策逻辑。
  */
 @Slf4j
-@Component
 public class ApprovalService {
 
     /** 批准框等待超时（默认 10 分钟，与 GuiQuestionHandler 一致） */
@@ -127,6 +125,35 @@ public class ApprovalService {
         return resolveViaStore(store, prefix, request, sessionId,
                 "工具 '" + toolName + "' 已被永久拒绝",
                 "用户拒绝执行文件操作");
+    }
+
+    /**
+     * 检查并获取动态插件挂载批准。
+     *
+     * <p>插件挂载会改变智能体自身能力（自修改），与文件写同级对待：
+     * 批准 key 用工具名（"PluginMount"），首次需批准，永久批准后该项目内自动放行。
+     * work 模式（projectDir 为 null）跳过批准。
+     *
+     * @param toolName   工具名（"PluginMount"）
+     * @param action     动作描述（"挂载插件"）
+     * @param summary    插件摘要（名称/作用域/工具清单，展示给用户）
+     * @param projectDir 项目目录；null 时跳过批准
+     * @param sessionId  当前会话 ID
+     * @return 批准决策
+     */
+    public ApprovalDecision checkAndApprovePlugin(String toolName, String action, String summary,
+                                                  String projectDir, String sessionId) {
+        if (projectDir == null || projectDir.isBlank()) {
+            return ApprovalDecision.allow();
+        }
+
+        String prefix = toolName == null ? "" : toolName.trim().toLowerCase(java.util.Locale.ROOT);
+        ApprovalStore store = getOrCreateStore(projectDir);
+        String reason = "挂载动态插件（改变智能体能力，仅内存态、可逆）";
+        ApprovalRequest request = ApprovalRequest.forPlugin(toolName, action, summary, reason, projectDir);
+        return resolveViaStore(store, prefix, request, sessionId,
+                "工具 '" + toolName + "' 已被永久拒绝",
+                "用户拒绝挂载插件");
     }
 
     /**

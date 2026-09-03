@@ -23,7 +23,6 @@ import lombok.Getter;
 import lombok.RequiredArgsConstructor;
 import lombok.Setter;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.stereotype.Component;
 
 import java.net.URL;
 import java.util.List;
@@ -31,7 +30,6 @@ import java.util.ResourceBundle;
 import java.util.function.Consumer;
 
 @Slf4j
-@Component
 @RequiredArgsConstructor
 public class CanvasDialogController implements WindowManager.StageAware, DialogHolder, Initializable {
 

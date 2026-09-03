@@ -1,8 +1,6 @@
 package cn.bitloom.project.git;
 
-import jakarta.annotation.PreDestroy;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.stereotype.Component;
 
 import java.io.IOException;
 import java.nio.file.FileSystems;
@@ -26,7 +24,6 @@ import java.util.concurrent.atomic.AtomicBoolean;
  * 仅监听非忽略目录，且跳过 .git 等高频写入目录以避免无效刷新。
  */
 @Slf4j
-@Component
 public class ProjectFileWatcherService {
 
     private static final long DEBOUNCE_MS = 600;
@@ -253,7 +250,6 @@ public class ProjectFileWatcherService {
     }
 
     /** 供 App 关闭时调用释放资源 */
-    @PreDestroy
     public void destroy() {
         stopInternal();
         try {

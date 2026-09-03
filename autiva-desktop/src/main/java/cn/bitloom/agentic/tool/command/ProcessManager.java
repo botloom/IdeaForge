@@ -2,7 +2,6 @@ package cn.bitloom.agentic.tool.command;
 
 import cn.bitloom.agentic.tool.command.shell.ShellExecutor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.stereotype.Component;
 
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
@@ -27,7 +26,6 @@ import java.util.concurrent.locks.ReentrantLock;
  * marker 检测通过 {@link ShellExecutor} 提供的解析方法实现。
  */
 @Slf4j
-@Component
 public class ProcessManager {
 
     private static final long DEFAULT_BG_TIMEOUT_MS = 600_000L;

@@ -20,9 +20,9 @@ import java.util.ArrayList;
 import java.util.List;
 
 import cn.bitloom.agentic.event.MessageEvent;
-import org.springframework.ai.tokenizer.JTokkitTokenCountEstimator;
-import org.springframework.ai.tokenizer.TokenCountEstimator;
-import org.springframework.util.Assert;
+import cn.bitloom.harness.llm.Role;
+import cn.bitloom.harness.llm.TokenCountEstimator;
+import cn.bitloom.util.Assert;
 
 /**
  * Compaction strategy that retains only the last {@code maxEvents} real events, always
@@ -36,7 +36,7 @@ import org.springframework.util.Assert;
  * produced by sub-agents do not consume slots from the {@code maxEvents} budget — they
  * are always included with their enclosing root turn.</li>
  * <li>Snap the raw cut index forward to the nearest root-level
- * {@link org.springframework.ai.chat.messages.MessageType#USER} event so the kept window
+ * {@link Role#USER} event so the kept window
  * always starts at a turn boundary. Sub-agent USER messages are skipped because they are
  * turn-internal, not turn starts.</li>
  * <li>Return: {@code [synthetic summaries] + [kept real events]}.</li>
@@ -143,7 +143,7 @@ public final class SlidingWindowCompactionStrategy implements CompactionStrategy
 
 		private int maxEvents = DEFAULT_MAX_EVENTS;
 
-		private TokenCountEstimator tokenCountEstimator = new JTokkitTokenCountEstimator();
+		private TokenCountEstimator tokenCountEstimator = new TokenCountEstimator();
 
 		private Builder() {
 		}

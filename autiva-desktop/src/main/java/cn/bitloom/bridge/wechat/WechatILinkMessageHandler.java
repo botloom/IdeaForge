@@ -3,9 +3,8 @@ package cn.bitloom.bridge.wechat;
 import cn.bitloom.agentic.agent.Agent;
 import cn.bitloom.agentic.agent.AgentDefinition;
 import cn.bitloom.agentic.agent.AgentDefinitionManager;
-import cn.bitloom.agentic.agent.RuntimeContext;
-import cn.bitloom.agentic.agent.advisor.AgentMemoryAdvisor;
-import cn.bitloom.agentic.agent.advisor.SessionMemoryAdvisor;
+import cn.bitloom.agentic.agent.interceptor.AgentMemoryInterceptor;
+import cn.bitloom.agentic.agent.interceptor.SessionMemoryInterceptor;
 import cn.bitloom.agentic.event.MessageEvent;
 import cn.bitloom.agentic.model.ModelFactory;
 import cn.bitloom.agentic.session.CreateSessionRequest;
@@ -21,45 +20,41 @@ import cn.bitloom.agentic.tool.session.CrossSessionSearchTool;
 import cn.bitloom.bridge.wechat.ilink.model.MessageItem;
 import cn.bitloom.bridge.wechat.ilink.model.WeixinMessage;
 import cn.bitloom.constant.AppConstants;
+import cn.bitloom.harness.llm.ChatModel;
+import cn.bitloom.harness.llm.Role;
+import cn.bitloom.harness.llm.TokenCountEstimator;
+import cn.bitloom.harness.loop.LoopContext;
+import cn.bitloom.harness.loop.LoopInterceptor;
+import cn.bitloom.harness.tool.ToolCallback;
 import cn.bitloom.store.Store;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.ai.chat.client.ChatClient;
-import org.springframework.ai.chat.client.advisor.api.Advisor;
-import org.springframework.ai.chat.messages.MessageType;
-import org.springframework.ai.chat.model.ChatModel;
-import org.springframework.ai.tokenizer.JTokkitTokenCountEstimator;
-import org.springframework.ai.tool.ToolCallback;
-import org.springframework.ai.tool.method.MethodToolCallbackProvider;
-import org.springframework.context.annotation.Lazy;
-import org.springframework.stereotype.Component;
 
 import java.nio.file.Path;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.function.Supplier;
 
 @Slf4j
-@Component
 public class WechatILinkMessageHandler {
 
     private static final String SOURCE = "wechat";
     private static final String DEFAULT_AGENT_ID = "work";
     private final FileSystemSessionManager fileSystemSessionManager;
-    private final WechatILinkClient wechatILinkClient;
+    private final Supplier<WechatILinkClient> wechatILinkClientProvider;
     private final AgentDefinitionManager definitionManager;
     private final ModelFactory modelFactory;
     private final Toolkit toolkit;
     private final Map<String, Session> sessionMap = new ConcurrentHashMap<>();
 
-    public WechatILinkMessageHandler(@Lazy FileSystemSessionManager fileSystemSessionManager,
-                                     @Lazy WechatILinkClient wechatILinkClient,
-                                     @Lazy AgentDefinitionManager definitionManager,
-                                     @Lazy ModelFactory modelFactory,
-                                     @Lazy Toolkit toolkit) {
+    public WechatILinkMessageHandler(FileSystemSessionManager fileSystemSessionManager,
+                                     Supplier<WechatILinkClient> wechatILinkClientProvider,
+                                     AgentDefinitionManager definitionManager,
+                                     ModelFactory modelFactory,
+                                     Toolkit toolkit) {
         this.fileSystemSessionManager = fileSystemSessionManager;
-        this.wechatILinkClient = wechatILinkClient;
+        this.wechatILinkClientProvider = wechatILinkClientProvider;
         this.definitionManager = definitionManager;
         this.modelFactory = modelFactory;
         this.toolkit = toolkit;
@@ -81,7 +76,7 @@ public class WechatILinkMessageHandler {
         fileSystemSessionManager.withLock(session.id(), () -> {
             try {
                 Agent agent = buildAgent(session, DEFAULT_AGENT_ID);
-                RuntimeContext ctx = RuntimeContext.builder()
+                LoopContext ctx = LoopContext.builder()
                         .sessionId(session.id())
                         .userId(userId)
                         .build();
@@ -91,7 +86,7 @@ public class WechatILinkMessageHandler {
                                     && me.isAssistantMessage()
                                     && me.getText() != null
                                     && !me.getText().isBlank()) {
-                                wechatILinkClient.sendText(userId, me.getText().trim());
+                                wechatILinkClientProvider.get().sendText(userId, me.getText().trim());
                             }
                         })
                         .doOnError(e -> log.error("Wechat agent run error: userId={}", userId, e))
@@ -125,37 +120,30 @@ public class WechatILinkMessageHandler {
         ChatModel chatModel = modelFactory.model(Store.selectedModel.get());
         String uid = session.userId() != null ? session.userId() : "default-user";
 
-        List<Advisor> advisors = new ArrayList<>();
+        List<LoopInterceptor> interceptors = new ArrayList<>();
 
-        SessionMemoryAdvisor sessionMemoryAdvisor = SessionMemoryAdvisor.builder(fileSystemSessionManager)
+        SessionMemoryInterceptor sessionMemoryInterceptor = SessionMemoryInterceptor.builder(fileSystemSessionManager)
                 .defaultUserId(uid)
-                .messageFilter(MessageFilter.byMessageType(MessageType.USER, MessageType.ASSISTANT, MessageType.TOOL)
+                .messageFilter(MessageFilter.byMessageType(Role.USER, Role.ASSISTANT, Role.TOOL)
                         .and(MessageFilter.skipEmptyMessages()))
                 .compactionTrigger(TokenCountTrigger.builder()
                         .threshold(100000)
-                        .tokenCountEstimator(new JTokkitTokenCountEstimator())
+                        .tokenCountEstimator(new TokenCountEstimator())
                         .build())
-                .compactionStrategy(RecursiveSummarizationCompactionStrategy.builder(
-                                ChatClient.builder(chatModel).build())
+                .compactionStrategy(RecursiveSummarizationCompactionStrategy.builder(chatModel)
                         .build())
                 .build();
-        advisors.add(sessionMemoryAdvisor);
+        interceptors.add(sessionMemoryInterceptor);
 
         Path memoriesDir = AppConstants.Memory.workMemoryDir();
-        AgentMemoryAdvisor agentMemoryAdvisor = AgentMemoryAdvisor.builder()
+        AgentMemoryInterceptor agentMemoryInterceptor = AgentMemoryInterceptor.builder()
                 .memoriesRootDirectory(memoriesDir.toString())
                 .build();
-        advisors.add(agentMemoryAdvisor);
+        interceptors.add(agentMemoryInterceptor);
 
         List<ToolCallback> allTools = new ArrayList<>(toolkit.buildToolCallbacks(definition));
-        allTools.addAll(Arrays.asList(MethodToolCallbackProvider.builder()
-                .toolObjects(ConversationSearchTool.builder(fileSystemSessionManager).build())
-                .build()
-                .getToolCallbacks()));
-        allTools.addAll(Arrays.asList(MethodToolCallbackProvider.builder()
-                .toolObjects(CrossSessionSearchTool.builder(fileSystemSessionManager, uid).build())
-                .build()
-                .getToolCallbacks()));
+        allTools.add(ConversationSearchTool.builder(fileSystemSessionManager).build().toToolCallback());
+        allTools.add(CrossSessionSearchTool.builder(fileSystemSessionManager, uid).build().toToolCallback());
 
         Agent agent = Agent.builder()
                 .name(agentId)
@@ -163,8 +151,7 @@ public class WechatILinkMessageHandler {
                 .model(chatModel)
                 .systemPrompt(definition.content())
                 .tools(allTools)
-                .hooks(List.of())
-                .advisors(advisors)
+                .interceptors(interceptors)
                 .build();
         log.info("构建微信智能体: agentId={}", agentId);
         return agent;

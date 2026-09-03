@@ -1,6 +1,6 @@
 package cn.bitloom.node.message;
 
-import org.springframework.ai.chat.messages.MessageType;
+import cn.bitloom.harness.llm.Role;
 import javafx.scene.Node;
 
 /**
@@ -23,9 +23,9 @@ public class NodeMessageCard extends MessageCard {
     }
 
     @Override
-    public MessageType getMessageType() {
+    public Role getMessageType() {
         // 助手侧内容（TaskCard/QuestionCard），视觉上左对齐
-        return MessageType.ASSISTANT;
+        return Role.ASSISTANT;
     }
 
     @Override

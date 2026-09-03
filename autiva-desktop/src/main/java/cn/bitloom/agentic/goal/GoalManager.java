@@ -2,7 +2,6 @@ package cn.bitloom.agentic.goal;
 
 import cn.bitloom.agentic.tool.task.repository.TaskRepository;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.stereotype.Component;
 
 import java.util.List;
 import java.util.Map;
@@ -14,16 +13,15 @@ import java.util.function.BiConsumer;
 /**
  * 目标状态管理器（对标 learn-claude-code s17 Goal Loop）。
  *
- * <p>per-session 目标容器：GoalSetTool（模型设置目标）与 GoalJudgeHook（回合结束判定）
+ * <p>per-session 目标容器：GoalSetTool（模型设置目标）与 GoalJudgeInterceptor（回合结束判定）
  * 通过本类共享状态；自动续轮回调（continuation）由 ViewModel 注册，
- * GoalJudgeHook / TaskTool 后台任务通知通过 {@link #continueRound} 触发下一次 runStream。
+ * GoalJudgeInterceptor / TaskTool 后台任务通知通过 {@link #continueRound} 触发下一次 runStream。
  *
  * <p>defer 语义：{@link #hasBackgroundWork()} 检查 TaskRepository 中是否有运行中的
  * 后台任务（TaskTool run_in_background），运行中时不判定目标（等 task_notification
  * 注入后由 {@link #resumeIfDeferred} 恢复续轮）。
  */
 @Slf4j
-@Component
 public class GoalManager {
 
     /** 自动续轮回调列表（coder/work 两个 ViewModel 各注册一个，按 sessionId 自行路由） */

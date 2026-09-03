@@ -16,16 +16,15 @@
 
 package cn.bitloom.agentic.session.compaction;
 
-import org.springframework.ai.tokenizer.JTokkitTokenCountEstimator;
-import org.springframework.ai.tokenizer.TokenCountEstimator;
-import org.springframework.util.Assert;
+import cn.bitloom.harness.llm.TokenCountEstimator;
+import cn.bitloom.util.Assert;
 
 /**
  * Triggers compaction when the estimated token count of the session's events reaches a
- * threshold. Token count is measured using a configurable {@link TokenCountEstimator},
- * defaulting to {@link JTokkitTokenCountEstimator} — the same estimator used by
- * {@link TokenCountCompactionStrategy} — so that the trigger threshold and the strategy
- * budget are expressed in the same units and can be calibrated against each other.
+ * threshold. Token count is measured using a configurable {@link TokenCountEstimator}
+ * — the same estimator used by {@link TokenCountCompactionStrategy} — so that the
+ * trigger threshold and the strategy budget are expressed in the same units and can
+ * be calibrated against each other.
  *
  * @author Christian Tzolov
  * @since 2.0.0

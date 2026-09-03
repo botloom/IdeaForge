@@ -5,7 +5,7 @@ import cn.bitloom.agentic.session.compaction.CompactionResult;
 import cn.bitloom.agentic.session.compaction.CompactionStrategy;
 import cn.bitloom.agentic.session.compaction.CompactionTrigger;
 import org.jspecify.annotations.Nullable;
-import org.springframework.ai.chat.messages.Message;
+import cn.bitloom.harness.llm.ChatMessage;
 
 import java.util.List;
 import java.util.Objects;
@@ -74,7 +74,7 @@ public interface ISessionManager {
         return getEvents(sessionId, EventFilter.all());
     }
 
-    default List<Message> getMessages(String sessionId) {
+    default List<ChatMessage> getMessages(String sessionId) {
         return getEvents(sessionId).stream()
                 .filter(e -> e instanceof cn.bitloom.agentic.event.MessageEvent)
                 .map(e -> ((cn.bitloom.agentic.event.MessageEvent) e).getMessage())

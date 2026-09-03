@@ -18,35 +18,33 @@ package cn.bitloom.agentic.session;
 
 import java.util.UUID;
 
-import org.springframework.ai.chat.client.ChatClientResponse;
-import org.springframework.ai.chat.messages.Message;
 import cn.bitloom.agentic.event.MessageEvent;
+import cn.bitloom.harness.llm.ChatMessage;
+import cn.bitloom.harness.loop.LoopContext;
 
 /**
- * Derives the {@link MessageEvent#getId()} used when {@link SessionMemoryAdvisor#after}
- * persists an assistant reply message.
+ * Derives the {@link MessageEvent#getId()} used when
+ * {@code SessionMemoryInterceptor} persists an assistant reply message.
  *
  * <p>
  * Separate from {@link SessionEventRequestIdGenerator} rather than one shared signature
- * because {@code after(ChatClientResponse, AdvisorChain)} never receives the original
- * {@code ChatClientRequest} -- that's {@code BaseAdvisor}'s contract, not something this
- * SPI can paper over. Session id and any other context needed for a deterministic
- * derivation are still available via {@link ChatClientResponse#context()}, which carries
- * forward whatever the request's context held.
+ * so request-side (user/tool) and response-side (assistant) derivations can vary
+ * independently. Session id and any other context needed for a deterministic
+ * derivation are available via {@link LoopContext}.
  *
  * <p>
  * The default, {@link #random()}, reproduces the id-less behaviour
  * {@code ISessionManager.appendEvent} always had before this SPI existed.
  *
- * @see SessionEventRequestIdGenerator the counterpart used in {@link SessionMemoryAdvisor#before}
+ * @see SessionEventRequestIdGenerator the request-side counterpart
  */
 @FunctionalInterface
 public interface SessionEventResponseIdGenerator {
 
-	String generate(ChatClientResponse response, Message message);
+	String generate(LoopContext ctx, ChatMessage message);
 
 	static SessionEventResponseIdGenerator random() {
-		return (response, message) -> UUID.randomUUID().toString();
+		return (ctx, message) -> UUID.randomUUID().toString();
 	}
 
 }

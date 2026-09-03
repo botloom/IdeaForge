@@ -3,6 +3,7 @@ package cn.bitloom.agentic.session;
 import cn.bitloom.agentic.event.AbstractEvent;
 import cn.bitloom.agentic.event.CompactionEvent;
 import cn.bitloom.agentic.event.MessageEvent;
+import cn.bitloom.agentic.plugin.PluginRegistry;
 import cn.bitloom.agentic.snapshot.TurnSnapshotStore;
 import cn.bitloom.constant.AppConstants;
 import cn.bitloom.exception.StorageException;
@@ -13,7 +14,6 @@ import cn.bitloom.agentic.session.compaction.CompactionRequest;
 import cn.bitloom.agentic.session.compaction.CompactionResult;
 import cn.bitloom.agentic.session.compaction.CompactionStrategy;
 import cn.bitloom.agentic.session.compaction.CompactionTrigger;
-import org.springframework.stereotype.Component;
 
 import java.io.BufferedReader;
 import java.io.IOException;
@@ -35,7 +35,6 @@ import java.util.function.Supplier;
 import java.util.stream.Stream;
 
 @Slf4j
-@Component
 public class FileSystemSessionManager implements ISessionManager {
 
     /** per-session 可重入锁，保证同一 session 的事件串行处理 */
@@ -43,6 +42,16 @@ public class FileSystemSessionManager implements ISessionManager {
 
     /** 每轮消息缓冲：sessionId → 待刷盘的事件列表 */
     private final Map<String, CopyOnWriteArrayList<AbstractEvent>> pendingEvents = new ConcurrentHashMap<>();
+
+    /**
+     * 插件注册表（延迟解析：PluginRegistry 依赖 Toolkit，Toolkit 依赖本类，
+     * 用 Supplier 打破构造环；remove 时清理 SESSION 作用域插件）。
+     */
+    private final Supplier<PluginRegistry> pluginRegistryProvider;
+
+    public FileSystemSessionManager(Supplier<PluginRegistry> pluginRegistryProvider) {
+        this.pluginRegistryProvider = pluginRegistryProvider;
+    }
 
     @Override
     public <T> T withLock(String sessionId, Supplier<T> action) {
@@ -118,6 +127,15 @@ public class FileSystemSessionManager implements ISessionManager {
 
     @Override
     public void remove(String sessionId) {
+        // 清理该 session 作用域的动态插件（可逆回收）
+        PluginRegistry pluginRegistry = pluginRegistryProvider.get();
+        if (pluginRegistry != null) {
+            try {
+                pluginRegistry.disposeSession(sessionId);
+            } catch (Exception e) {
+                log.warn("清理 session 动态插件失败: {}", sessionId, e);
+            }
+        }
         try {
             Path sessionPath = AppConstants.Session.sessionDir(sessionId);
             if (Files.exists(sessionPath)) {

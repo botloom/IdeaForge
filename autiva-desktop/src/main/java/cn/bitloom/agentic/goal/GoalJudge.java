@@ -1,8 +1,11 @@
 package cn.bitloom.agentic.goal;
 
+import cn.bitloom.harness.llm.ChatMessage;
+import cn.bitloom.harness.llm.ChatModel;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.ai.chat.client.ChatClient;
+
+import java.util.List;
 
 /**
  * 目标判断器（对标 learn-claude-code s17 "判断器与执行者分离"）。
@@ -11,7 +14,7 @@ import org.springframework.ai.chat.client.ChatClient;
  * 不得臆测未出现的执行结果。执行者（主模型）负责修改代码、跑命令；
  * 判断器只读对话文本，输出 {@code {ok, reason, impossible}}。
  *
- * <p>判断器调用失败时由调用方（GoalJudgeHook）停止自动续轮、保留目标——绝不宣称成功。
+ * <p>判断器调用失败时由调用方（GoalJudgeInterceptor）停止自动续轮、保留目标——绝不宣称成功。
  */
 @Slf4j
 public class GoalJudge {
@@ -36,12 +39,12 @@ public class GoalJudge {
             4. 只输出一个 JSON，不要任何其它文本：
                {"ok": true/false, "reason": "简短原因", "impossible": true/false}""";
 
-    private final ChatClient chatClient;
+    private final ChatModel chatModel;
 
     private final ObjectMapper objectMapper = new ObjectMapper();
 
-    public GoalJudge(ChatClient chatClient) {
-        this.chatClient = chatClient;
+    public GoalJudge(ChatModel chatModel) {
+        this.chatModel = chatModel;
     }
 
     /**
@@ -63,12 +66,17 @@ public class GoalJudge {
 
                 判定目标是否已达成。""".formatted(goal, roundText);
 
-        String content = chatClient.prompt()
-                .system(SYSTEM_PROMPT)
-                .user(prompt)
-                .call()
-                .content();
-        return parseVerdict(content);
+        // 流式聚合文本（零工具）后阻塞返回完整输出
+        StringBuilder collected = new StringBuilder();
+        chatModel.stream(List.of(ChatMessage.system(SYSTEM_PROMPT), ChatMessage.user(prompt)),
+                List.of(), null)
+                .doOnNext(chunk -> {
+                    if (chunk.deltaText() != null) {
+                        collected.append(chunk.deltaText());
+                    }
+                })
+                .blockLast();
+        return parseVerdict(collected.toString());
     }
 
     /** JSON 解析容错：提取首个 {...} 片段解析 */

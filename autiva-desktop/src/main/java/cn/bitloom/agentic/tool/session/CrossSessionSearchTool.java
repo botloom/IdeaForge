@@ -28,17 +28,17 @@ import org.jspecify.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import org.springframework.ai.chat.model.ToolContext;
+import cn.bitloom.harness.tool.ToolContext;
 import cn.bitloom.agentic.session.EventFilter;
 import cn.bitloom.agentic.session.EventFilter.MatchMode;
 import cn.bitloom.agentic.session.Session;
 import cn.bitloom.agentic.event.AbstractEvent;
 import cn.bitloom.agentic.event.MessageEvent;
-import cn.bitloom.agentic.tool.AbstractTool;
-import cn.bitloom.agentic.tool.ToolResult;
+import cn.bitloom.harness.tool.AbstractTool;
+import cn.bitloom.harness.tool.ToolResult;
 import cn.bitloom.util.JsonUtils;
-import org.springframework.ai.tool.annotation.ToolParam;
-import org.springframework.util.StringUtils;
+import cn.bitloom.harness.tool.ToolParam;
+import org.apache.commons.lang3.StringUtils;
 import cn.bitloom.agentic.session.ISessionManager;
 
 /**
@@ -114,7 +114,7 @@ public class CrossSessionSearchTool extends AbstractTool<CrossSessionSearchTool.
 		List<MessageEvent> allMatches = new ArrayList<>();
 		for (Session session : sessions) {
 			for (AbstractEvent event : this.sessionService.getEvents(session.id(), filter)) {
-				if (event instanceof MessageEvent me && StringUtils.hasText(me.getMessage().getText())) {
+				if (event instanceof MessageEvent me && StringUtils.isNotBlank(me.getMessage().getText())) {
 					allMatches.add(me);
 				}
 			}
@@ -142,7 +142,7 @@ public class CrossSessionSearchTool extends AbstractTool<CrossSessionSearchTool.
 			.map(event -> Map.of(
 				"sessionId", event.getSessionId(),
 				"timestamp", event.getTimestamp().toString(),
-				"type", event.getMessageType().getValue(),
+				"type", event.getMessageType().name(),
 				"text", event.getMessage().getText()
 			))
 			.toList();
@@ -153,11 +153,11 @@ public class CrossSessionSearchTool extends AbstractTool<CrossSessionSearchTool.
 	private EventFilter buildFilter(String query, String matchMode, String since) {
 		EventFilter.Builder builder = EventFilter.builder();
 
-		if (StringUtils.hasText(query)) {
+		if (StringUtils.isNotBlank(query)) {
 			List<String> terms = List.of(query.split(","))
 				.stream()
 				.map(String::trim)
-				.filter(StringUtils::hasText)
+				.filter(StringUtils::isNotBlank)
 				.toList();
 			if (terms.isEmpty()) {
 				// 例如 query = "," 或 ", " — 有可见字符所以不是空白，
@@ -181,7 +181,7 @@ public class CrossSessionSearchTool extends AbstractTool<CrossSessionSearchTool.
 			}
 		}
 
-		if (StringUtils.hasText(since)) {
+		if (StringUtils.isNotBlank(since)) {
 			try {
 				builder.from(Instant.parse(since));
 			}
@@ -208,7 +208,7 @@ public class CrossSessionSearchTool extends AbstractTool<CrossSessionSearchTool.
 			if (sessionService == null) {
 				throw new IllegalArgumentException("sessionService must not be null");
 			}
-			if (!StringUtils.hasText(userId)) {
+			if (!StringUtils.isNotBlank(userId)) {
 				throw new IllegalArgumentException("userId must not be empty");
 			}
 			this.sessionService = sessionService;

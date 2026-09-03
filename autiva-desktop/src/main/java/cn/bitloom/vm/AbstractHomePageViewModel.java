@@ -3,40 +3,31 @@ package cn.bitloom.vm;
 import cn.bitloom.agentic.agent.Agent;
 import cn.bitloom.agentic.agent.AgentDefinition;
 import cn.bitloom.agentic.agent.AgentDefinitionManager;
-import cn.bitloom.agentic.agent.RuntimeContext;
-import cn.bitloom.agentic.agent.advisor.AgentMemoryAdvisor;
-import cn.bitloom.agentic.agent.advisor.EnvironmentContextAdvisor;
-import cn.bitloom.agentic.agent.advisor.AgentMemoryRecallAdvisor;
-import cn.bitloom.agentic.agent.advisor.SessionMemoryAdvisor;
-import cn.bitloom.agentic.agent.advisor.SkillContextAdvisor;
-import cn.bitloom.agentic.agent.advisor.SubagentContextAdvisor;
+import cn.bitloom.agentic.agent.SelfModifiedEvent;
+import cn.bitloom.agentic.agent.assembly.AgentAssembler;
+import cn.bitloom.agentic.agent.assembly.AgentAssemblyContext;
+import cn.bitloom.agentic.agent.assembly.AgentProfile;
+import cn.bitloom.agentic.agent.assembly.CodeProfile;
+import cn.bitloom.agentic.agent.assembly.WorkProfile;
 import cn.bitloom.agentic.event.AbstractEvent;
 import cn.bitloom.agentic.event.CompactionEvent;
 import cn.bitloom.agentic.event.MessageEvent;
 import cn.bitloom.agentic.event.MemoryRecallEvent;
 import cn.bitloom.agentic.event.UICardEvent;
-import cn.bitloom.agentic.hook.FileChangeRecorderHook;
-import cn.bitloom.agentic.hook.IAgentHook;
-import cn.bitloom.agentic.hook.MemoryExtractionHook;
-import cn.bitloom.agentic.hook.PermissionHook;
-import cn.bitloom.agentic.hook.TodoReminderHook;
-import cn.bitloom.agentic.hook.ToolCallBudgetHook;
-import cn.bitloom.agentic.hook.ToolCardEventHook;
-import cn.bitloom.agentic.hook.ToolResultOffloadHook;
 import cn.bitloom.agentic.memory.FileSystemAgentMemoryStore;
-import cn.bitloom.agentic.memory.MemoryConsolidator;
 import cn.bitloom.agentic.model.ModelFactory;
+import cn.bitloom.agentic.plugin.PluginRegistry;
 import cn.bitloom.agentic.session.*;
 import cn.bitloom.agentic.session.compaction.TokenCountCompactionStrategy;
-import cn.bitloom.agentic.session.compaction.TokenCountTrigger;
 import cn.bitloom.agentic.skill.SkillManager;
 import cn.bitloom.agentic.tool.Toolkit;
 import cn.bitloom.agentic.tool.plan.ExitPlanModeTool;
-import cn.bitloom.agentic.tool.session.ConversationSearchTool;
-import cn.bitloom.agentic.tool.session.CrossSessionSearchTool;
+import cn.bitloom.harness.llm.ChatModel;
+import cn.bitloom.harness.loop.LoopContext;
 import cn.bitloom.node.message.*;
 import cn.bitloom.node.tool.ToolCallCard;
 import cn.bitloom.store.Store;
+import cn.bitloom.util.AppEvents;
 import javafx.application.Platform;
 import javafx.beans.property.BooleanProperty;
 import javafx.beans.property.SimpleBooleanProperty;
@@ -45,12 +36,6 @@ import javafx.collections.ObservableList;
 import lombok.Getter;
 import lombok.Setter;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.ai.chat.client.ChatClient;
-import org.springframework.ai.chat.client.advisor.api.Advisor;
-import org.springframework.ai.chat.messages.MessageType;
-import org.springframework.ai.chat.model.ChatModel;
-import org.springframework.ai.tokenizer.JTokkitTokenCountEstimator;
-import org.springframework.ai.tool.ToolCallback;
 import reactor.core.Disposable;
 
 import java.nio.file.Path;
@@ -95,6 +80,7 @@ public abstract class AbstractHomePageViewModel {
     protected final cn.bitloom.config.ConfigManager configManager;
     protected final cn.bitloom.agentic.goal.GoalManager goalManager;
     protected final cn.bitloom.bridge.desktop.ToolUIBridge toolUIBridge;
+    protected final PluginRegistry pluginRegistry;
 
     /** UI 绑定的稳定消息列表引用，切换 session 时通过 setAll 替换内容 */
     @Getter
@@ -165,7 +151,8 @@ public abstract class AbstractHomePageViewModel {
                                         cn.bitloom.config.ConfigManager configManager,
                                         cn.bitloom.agentic.tool.mcp.McpConnectionManager mcpConnectionManager,
                                         cn.bitloom.agentic.goal.GoalManager goalManager,
-                                        cn.bitloom.bridge.desktop.ToolUIBridge toolUIBridge) {
+                                        cn.bitloom.bridge.desktop.ToolUIBridge toolUIBridge,
+                                        PluginRegistry pluginRegistry) {
         this.sessionManager = sessionManager;
         this.definitionManager = definitionManager;
         this.modelFactory = modelFactory;
@@ -175,10 +162,13 @@ public abstract class AbstractHomePageViewModel {
         this.configManager = configManager;
         this.goalManager = goalManager;
         this.toolUIBridge = toolUIBridge;
+        this.pluginRegistry = pluginRegistry;
         // MCP 连接变化（McpConnect/断开）→ evict 全部 per-session Agent 缓存，
         // 下一次 sendMessage 经 computeIfAbsent 重建，工具池即含最新 MCP 工具。
         // 正在流式处理中的 Agent 不受影响（引用仍被持有），新工具自下一轮对话生效。
         mcpConnectionManager.addChangeListener(sessionAgents::clear);
+        // 自修改事件（技能/定义/动态插件变更）→ evict 对应 session 的 Agent 缓存
+        AppEvents.subscribe(SelfModifiedEvent.class, this::onSelfModified);
     }
 
     public void createNewSession() {
@@ -360,23 +350,6 @@ public abstract class AbstractHomePageViewModel {
     protected abstract String buildSystemPrompt(AgentDefinition definition);
 
     /**
-     * 模式专有工具调整钩子：基类默认原样返回，不做任何裁剪。
-     * code 子类在计划模式下覆盖为实现只读工具裁剪 + 追加 ExitPlanMode。
-     */
-    protected List<ToolCallback> applyPlanModeTools(List<ToolCallback> allTools) {
-        return allTools;
-    }
-
-    /**
-     * 模式专有 Hook 追加钩子：基类默认空实现。
-     * code 子类覆盖以注册 GoalJudgeHook（目标闭环）、计划提交等。
-     */
-    protected void appendModeHooks(List<IAgentHook> hooks, ChatModel chatModel,
-                                   cn.bitloom.agentic.memory.FileSystemAgentMemoryStore memoryStore) {
-        // work 模式无 goal/plan 专有 hook
-    }
-
-    /**
      * session 创建时补充模式专有元数据：基类默认不写入。
      * code 子类覆盖以写入 projectId/projectName。
      */
@@ -391,91 +364,44 @@ public abstract class AbstractHomePageViewModel {
         AgentDefinition definition = definitionManager.getOrLoadMainDefinition(agentId);
         ChatModel chatModel = modelFactory.model(Store.selectedModel.get());
         String uid = session.userId() != null ? session.userId() : "default-user";
-
-        List<Advisor> advisors = new ArrayList<>();
-
         // 纯 token 压缩：DS 上下文 1M，达到 80%（800k token）时触发，压缩到约 60%（480k token）
         TokenCountCompactionStrategy tokenStrategy = TokenCountCompactionStrategy.builder()
                 .maxTokens(480000)
                 .build();
-        SessionMemoryAdvisor sessionMemoryAdvisor = SessionMemoryAdvisor.builder(sessionManager)
-                .defaultUserId(uid)
-                .messageFilter(MessageFilter.byMessageType(MessageType.USER, MessageType.ASSISTANT, MessageType.TOOL)
-                        .and(MessageFilter.skipEmptyMessages()))
-                .compactionTrigger(TokenCountTrigger.builder()
-                        .threshold(800000)
-                        .tokenCountEstimator(new JTokkitTokenCountEstimator())
-                        .build())
+        Path memoriesDir = resolveMemoryDir();
+        FileSystemAgentMemoryStore memoryStore = new FileSystemAgentMemoryStore(memoriesDir);
+
+        AgentAssemblyContext ctx = AgentAssemblyContext.builder()
+                .session(session)
+                .definition(definition)
+                .chatModel(chatModel)
+                .uid(uid)
+                .modelName(Store.selectedModel.get())
+                .sessionManager(sessionManager)
+                .skillManager(skillManager)
+                .configManager(configManager)
+                .approvalStrategies(approvalStrategies)
+                .definitionManager(definitionManager)
+                .pluginRegistry(pluginRegistry)
+                .toolkit(toolkit)
+                .memoriesDir(memoriesDir)
+                .memoryStore(memoryStore)
                 .compactionStrategy(tokenStrategy)
                 .build();
-        advisors.add(sessionMemoryAdvisor);
 
-        Path memoriesDir = resolveMemoryDir();
-        // 记忆自动化三件套共享同一 store：
-        // (a) 选择式召回——仅首轮注入相关记忆背景；(b) 回合提取 Hook——见下方 hooks；
-        // (c) 整理触发器——文件数 ≥ 阈值时注入 reminder 并由 Hook 异步整理
-        FileSystemAgentMemoryStore memoryStore = new FileSystemAgentMemoryStore(memoriesDir);
-        AgentMemoryAdvisor agentMemoryAdvisor = AgentMemoryAdvisor.builder()
-                .memoryStore(memoryStore)
-                .memoriesRootDirectory(memoriesDir.toString())
-                .memoryConsolidationTrigger(
-                        MemoryConsolidator.triggerWhen(memoryStore, MemoryConsolidator.DEFAULT_THRESHOLD))
-                .build();
-        advisors.add(agentMemoryAdvisor);
-
-        advisors.add(AgentMemoryRecallAdvisor.builder()
-                .sessionManager(sessionManager)
-                .memoryStore(memoryStore)
-                .chatClient(ChatClient.builder(chatModel).build())
-                .build());
-
-        advisors.add(SkillContextAdvisor.builder().skillManager(skillManager).build());
-
-        advisors.add(SubagentContextAdvisor.builder()
-                .definitionManager(definitionManager)
-                .definition(definition)
-                .build());
-        advisors.add(EnvironmentContextAdvisor.builder().build());
-
-        List<ToolCallback> allTools = new ArrayList<>(toolkit.buildToolCallbacks(definition));
-        allTools.add(ConversationSearchTool.builder(sessionManager).build().toToolCallback());
-        allTools.add(CrossSessionSearchTool.builder(sessionManager, uid).build().toToolCallback());
-
-        // 模式专有工具调整（code 模式：计划模式裁剪为只读工具并追加 ExitPlanMode）
-        allTools = applyPlanModeTools(allTools);
-
-        // 基础 Hook 集：预算保护 / 权限审批 / Todo 提醒 / 工具结果落盘（每次 new，避免状态串扰）
-        List<IAgentHook> hooks = new ArrayList<>();
-        hooks.add(new ToolCallBudgetHook(configManager.getMaxToolCalls()));
-        hooks.add(new PermissionHook(approvalStrategies));
-        // 文件变更快照：Write/Edit 执行前落盘原文件，供「撤回按钮」恢复
-        hooks.add(new FileChangeRecorderHook());
-        hooks.add(new TodoReminderHook());
-        hooks.add(new ToolCardEventHook());
-        hooks.add(new ToolResultOffloadHook());
-        // 记忆自动化 (b)：回合结束异步提取长期记忆（仅主智能体，用户交互入口）
-        hooks.add(MemoryExtractionHook.builder()
-                .sessionManager(sessionManager)
-                .memoryStore(memoryStore)
-                .chatClient(ChatClient.builder(chatModel).build())
-                .build());
-        // 模式专有 Hook（code 模式：GoalJudgeHook 目标闭环）
-        appendModeHooks(hooks, chatModel, memoryStore);
-
-        Agent agent = Agent.builder()
-                .name(agentId)
-                .definition(definition)
-                .model(chatModel)
-                .systemPrompt(buildSystemPrompt(definition))
-                .tools(allTools)
-                .hooks(hooks)
-                .advisors(advisors)
+        AgentProfile profile = createProfile(ctx);
+        Agent agent = new AgentAssembler().assemble(agentId, profile, ctx,
+                buildSystemPrompt(definition),
                 // reactive_compact：上下文超长被 API 拒绝时强制压缩（绕过触发器）后重试一次
-                .reactiveCompactor(sid -> sessionManager.compact(sid, req -> true, tokenStrategy))
-                .build();
-        log.info("构建智能体: agentId={}", agentId);
+                sid -> sessionManager.compact(sid, req -> true, tokenStrategy));
+        log.info("构建智能体: agentId={}, profile={}", agentId, profile.name());
         return agent;
     }
+
+    /**
+     * 子类实现：返回模式 Profile（work → {@link WorkProfile}，code → {@link CodeProfile}）。
+     */
+    protected abstract AgentProfile createProfile(AgentAssemblyContext ctx);
 
     // ===== 发送消息 =====
 
@@ -500,6 +426,17 @@ public abstract class AbstractHomePageViewModel {
     /** evict 指定 session 的 Agent 缓存（下一次 sendMessage 按当前状态重建，如计划模式切换） */
     protected void evictAgent(String sessionId) {
         sessionAgents.remove(sessionId);
+    }
+
+    /**
+     * 自修改事件监听：智能体修改了自身构成（技能/定义/动态插件），
+     * evict 该 session 的 Agent 缓存，下一轮消息按新构成重建。
+     */
+    public void onSelfModified(SelfModifiedEvent event) {
+        Agent evicted = sessionAgents.remove(event.sessionId());
+        if (evicted != null) {
+            log.info("自修改生效，重建智能体: sessionId={}, detail={}", event.sessionId(), event.detail());
+        }
     }
 
     /**
@@ -564,7 +501,7 @@ public abstract class AbstractHomePageViewModel {
                     // Agent 与 session 1:1 绑定，session 级缓存（首次构建，后续复用）
                     Agent agent = sessionAgents.computeIfAbsent(sid,
                             k -> buildAgent(currentSession, agentId));
-                    RuntimeContext ctx = RuntimeContext.builder()
+                    LoopContext ctx = LoopContext.builder()
                             .sessionId(sid)
                             .userId(currentSession.userId())
                             .projectPath(resolveProjectPath(currentSession))
@@ -597,7 +534,7 @@ public abstract class AbstractHomePageViewModel {
      * pause 时直接 dispose 订阅：Agent.runStream 内部经 sink.onCancel 级联取消 LLM 流，
      * 走 cancel 路径而非 complete，因此不会误触发 onStreamCompleted 的续轮逻辑。
      */
-    private void subscribeAgentStream(Agent agent, MessageEvent inputEvent, RuntimeContext ctx,
+    private void subscribeAgentStream(Agent agent, MessageEvent inputEvent, LoopContext ctx,
             String sid, SessionRuntimeState stateRef) {
         stateRef.subscription = agent.runStream(inputEvent, ctx)
                 .doOnNext(event -> Platform.runLater(() -> processEvent(event, sid)))
@@ -721,7 +658,7 @@ public abstract class AbstractHomePageViewModel {
                         stateRef.isStreaming = false;
                         return null;
                     }
-                    RuntimeContext ctx = RuntimeContext.builder()
+                    LoopContext ctx = LoopContext.builder()
                             .sessionId(sessionId)
                             .userId(targetSession.userId())
                             .projectPath(resolveProjectPath(targetSession))

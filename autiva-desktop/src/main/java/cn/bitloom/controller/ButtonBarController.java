@@ -10,7 +10,6 @@ import javafx.scene.control.MenuButton;
 import javafx.scene.layout.HBox;
 import lombok.Setter;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.stereotype.Component;
 
 import java.net.URL;
 import java.util.HashMap;
@@ -23,7 +22,6 @@ import java.util.ResourceBundle;
  * @author bitloom
  */
 @Slf4j
-@Component
 public class ButtonBarController implements Initializable {
 
     /** 需聊天后才显示的右上角视图按钮 id（当前已无右侧视图按钮） */

@@ -18,10 +18,10 @@ package cn.bitloom.agentic.session.compaction;
 
 import java.util.List;
 
-import org.springframework.ai.chat.messages.MessageType;
+import cn.bitloom.harness.llm.Role;
 import cn.bitloom.agentic.session.Session;
 import cn.bitloom.agentic.event.MessageEvent;
-import org.springframework.util.Assert;
+import cn.bitloom.util.Assert;
 
 /**
  * Contextual information provided to {@link CompactionTrigger} and
@@ -55,7 +55,7 @@ public record CompactionRequest(Session session, List<MessageEvent> events, int 
 		int turnCount = (int) events.stream()
 			.filter(e -> !e.isSynthetic())
 			.filter(e -> !e.isArchived())
-			.filter(e -> e.getMessageType() == MessageType.USER)
+			.filter(e -> e.getMessageType() == Role.USER)
 			.filter(MessageEvent::isRootEvent)
 			.count();
 		return new CompactionRequest(session, events, eventCount, turnCount);

@@ -3,9 +3,6 @@ package cn.bitloom.agentic.team;
 import cn.bitloom.constant.AppConstants;
 import cn.bitloom.util.JsonUtils;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.boot.context.event.ApplicationReadyEvent;
-import org.springframework.context.event.EventListener;
-import org.springframework.stereotype.Component;
 
 import java.io.IOException;
 import java.nio.file.Files;
@@ -30,7 +27,6 @@ import com.fasterxml.jackson.core.type.TypeReference;
  * <p>状态转换在 per-session 锁内执行，保证 wake 防重入判断的原子性。
  */
 @Slf4j
-@Component
 public class TeammateRegistry {
 
     private static final String TEAMMATES_FILE = "teammates.json";
@@ -140,7 +136,6 @@ public class TeammateRegistry {
     }
 
     /** 应用启动恢复：扫描所有 session 目录；work 状态恢复为 idle（运行已被重启中断） */
-    @EventListener(ApplicationReadyEvent.class)
     public void restore() {
         for (Path sessionsDir : findSessionsDirs()) {
             try (Stream<Path> sessionDirs = Files.list(sessionsDir)) {

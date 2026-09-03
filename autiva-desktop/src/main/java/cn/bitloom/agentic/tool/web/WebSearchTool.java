@@ -1,15 +1,14 @@
 package cn.bitloom.agentic.tool.web;
 
-import cn.bitloom.agentic.tool.AbstractTool;
-import cn.bitloom.agentic.tool.ToolResult;
+import cn.bitloom.harness.tool.AbstractTool;
+import cn.bitloom.harness.tool.ToolResult;
 import cn.bitloom.util.JsonUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.ai.chat.model.ToolContext;
-import org.springframework.ai.tool.annotation.ToolParam;
-import org.springframework.util.Assert;
-import org.springframework.util.CollectionUtils;
-import org.springframework.util.StringUtils;
+import cn.bitloom.harness.tool.ToolContext;
+import cn.bitloom.harness.tool.ToolParam;
+import cn.bitloom.util.Assert;
+import org.apache.commons.lang3.StringUtils;
 
 import java.net.URI;
 import java.net.URISyntaxException;
@@ -50,13 +49,13 @@ public class WebSearchTool extends AbstractTool<WebSearchTool.Input> {
 
     @Override
     public ToolResult execute(Input input, ToolContext context) {
-        if (!StringUtils.hasText(input.query())) {
+        if (!StringUtils.isNotBlank(input.query())) {
             logger.warn("提供了空的搜索查询");
             return ToolResult.error("搜索查询不能为空");
         }
 
         try {
-            if (!CollectionUtils.isEmpty(input.allowedDomains()) || !CollectionUtils.isEmpty(input.blockedDomains())) {
+            if (!(input.allowedDomains() == null || input.allowedDomains().isEmpty()) || !(input.blockedDomains() == null || input.blockedDomains().isEmpty())) {
                 logger.debug("将应用客户端域名过滤。允许的域名: {}, 阻止的域名: {}",
                         input.allowedDomains(), input.blockedDomains());
             }
@@ -100,7 +99,7 @@ public class WebSearchTool extends AbstractTool<WebSearchTool.Input> {
     private List<SearchResult> applyDomainFiltering(List<SearchResult> results,
             List<String> allowedDomains, List<String> blockedDomains) {
 
-        if (CollectionUtils.isEmpty(allowedDomains) && CollectionUtils.isEmpty(blockedDomains)) {
+        if ((allowedDomains == null || allowedDomains.isEmpty()) && (blockedDomains == null || blockedDomains.isEmpty())) {
             return results;
         }
 
@@ -113,7 +112,7 @@ public class WebSearchTool extends AbstractTool<WebSearchTool.Input> {
     }
 
     private Set<String> toNormalizedDomainSet(List<String> domains) {
-        return CollectionUtils.isEmpty(domains) ? Collections.emptySet()
+        return (domains == null || domains.isEmpty()) ? Collections.emptySet()
                 : domains.stream().map(String::toLowerCase).collect(Collectors.toSet());
     }
 

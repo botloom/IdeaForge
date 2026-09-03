@@ -1,13 +1,13 @@
 package cn.bitloom.agentic.tool.cron;
 
-import cn.bitloom.agentic.tool.AbstractTool;
-import cn.bitloom.agentic.tool.ToolResult;
+import cn.bitloom.harness.tool.AbstractTool;
+import cn.bitloom.harness.tool.ToolResult;
 import cn.bitloom.agentic.cron.CronManager;
 import cn.bitloom.agentic.cron.CronManager.CronTaskInfo;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.ai.chat.model.ToolContext;
-import org.springframework.ai.tool.annotation.ToolParam;
-import org.springframework.util.Assert;
+import cn.bitloom.harness.tool.ToolContext;
+import cn.bitloom.harness.tool.ToolParam;
+import cn.bitloom.util.Assert;
 
 import java.util.ArrayList;
 import java.util.List;

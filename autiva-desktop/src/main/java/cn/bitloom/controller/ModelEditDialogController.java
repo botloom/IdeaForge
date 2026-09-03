@@ -11,8 +11,6 @@ import javafx.stage.Stage;
 import lombok.Getter;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.context.annotation.Scope;
-import org.springframework.stereotype.Component;
 
 import java.net.URL;
 import java.util.ResourceBundle;
@@ -22,8 +20,6 @@ import java.util.function.Consumer;
  * 模型编辑对话框：添加/编辑模型配置。
  */
 @Slf4j
-@Component
-@Scope("prototype")
 @RequiredArgsConstructor
 public class ModelEditDialogController implements Initializable, WindowManager.StageAware, DialogHolder {
 

@@ -11,7 +11,6 @@ import javafx.concurrent.Task;
 import lombok.Getter;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.stereotype.Component;
 
 import java.awt.Desktop;
 import java.io.IOException;
@@ -24,7 +23,6 @@ import java.util.List;
 import java.util.stream.Stream;
 
 @Slf4j
-@Component
 @RequiredArgsConstructor
 public class AgentPageViewModel {
 

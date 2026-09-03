@@ -16,7 +16,6 @@ import org.eclipse.jgit.lib.Repository;
 import org.eclipse.jgit.revwalk.RevCommit;
 import org.eclipse.jgit.revwalk.RevWalk;
 import org.eclipse.jgit.treewalk.TreeWalk;
-import org.springframework.stereotype.Component;
 
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -32,7 +31,6 @@ import java.io.IOException;
  * 基于 jgit 查询项目工作区的文件状态（新增/修改/未跟踪），供目录树与文件视图着色。
  */
 @Slf4j
-@Component
 public class GitStatusService {
 
     private final GitService gitService;

@@ -1,5 +1,10 @@
 package cn.bitloom.agentic.event;
 
+import cn.bitloom.harness.llm.ChatMessage;
+import cn.bitloom.harness.llm.Role;
+import cn.bitloom.harness.llm.ToolCall;
+import cn.bitloom.harness.llm.ToolResult;
+import cn.bitloom.harness.llm.json.ChatMessageDeserializer;
 import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.databind.annotation.JsonDeserialize;
@@ -9,11 +14,6 @@ import lombok.NoArgsConstructor;
 import lombok.Setter;
 import lombok.experimental.SuperBuilder;
 import lombok.extern.jackson.Jacksonized;
-import org.springframework.ai.chat.messages.AssistantMessage;
-import org.springframework.ai.chat.messages.Message;
-import org.springframework.ai.chat.messages.MessageType;
-import org.springframework.ai.chat.messages.ToolResponseMessage;
-import org.springframework.ai.chat.messages.UserMessage;
 
 import java.util.HashMap;
 import java.util.List;
@@ -41,8 +41,8 @@ public final class MessageEvent extends AbstractEvent {
 
     private String branch;
 
-    @JsonDeserialize(using = MessageDeserializer.class)
-    private Message message;
+    @JsonDeserialize(using = ChatMessageDeserializer.class)
+    private ChatMessage message;
 
     @Builder.Default
     private Map<String, Object> metadata = new HashMap<>();
@@ -86,7 +86,7 @@ public final class MessageEvent extends AbstractEvent {
 
     /**
      * 后台任务通知事件标记（metadata key）：notification=true 的 root 事件
-     * 由 SessionMemoryAdvisor 注入下一轮上下文后标记 consumed（一次性消费）。
+     * 由 SessionMemoryInterceptor 注入下一轮上下文后标记 consumed（一次性消费）。
      */
     public static final String METADATA_NOTIFICATION = "notification";
     public static final String METADATA_CONSUMED = "consumed";
@@ -94,8 +94,6 @@ public final class MessageEvent extends AbstractEvent {
     /**
      * 压缩影子轮次标记（metadata key）：compactionShadow=true 表示该 synthetic
      * 事件由压缩策略生成（shadow-prompt 用户消息 + 摘要助手消息），是框架伪消息。
-     * 与续轮 / 通知类的 synthetic 区分：后者是真实发生的系统注入，历史加载时应
-     * 渲染为 NotificationCard 并充当轮次边界；前者应跳过不渲染。
      */
     public static final String METADATA_COMPACTION_SHADOW = "compactionShadow";
 
@@ -115,16 +113,16 @@ public final class MessageEvent extends AbstractEvent {
     public boolean isRootEvent() { return this.branch == null; }
 
     @JsonIgnore
-    public MessageType getMessageType() { return this.message != null ? this.message.getMessageType() : null; }
+    public Role getMessageType() { return this.message != null ? this.message.getRole() : null; }
 
     @JsonIgnore
     public boolean hasToolCalls() {
-        return this.message instanceof AssistantMessage am && am.hasToolCalls();
+        return this.message != null && this.message.hasToolCalls();
     }
 
     @JsonIgnore
     public boolean isUserMessage() {
-        return message != null && message.getMessageType() == MessageType.USER;
+        return message != null && message.getRole() == Role.USER;
     }
 
     @JsonIgnore
@@ -134,12 +132,12 @@ public final class MessageEvent extends AbstractEvent {
 
     @JsonIgnore
     public boolean isAssistantMessage() {
-        return message != null && message.getMessageType() == MessageType.ASSISTANT;
+        return message != null && message.getRole() == Role.ASSISTANT;
     }
 
     @JsonIgnore
     public boolean isToolResponse() {
-        return message != null && message.getMessageType() == MessageType.TOOL;
+        return message != null && message.getRole() == Role.TOOL;
     }
 
     @JsonIgnore
@@ -150,30 +148,19 @@ public final class MessageEvent extends AbstractEvent {
 
     @JsonIgnore
     public String getFinishReason() {
-        if (message instanceof AssistantMessage am) {
-            Object v = am.getMetadata().get("finishReason");
-            return v != null ? v.toString() : null;
-        }
-        return null;
+        return message != null ? message.finishReason() : null;
     }
 
-    /**
-     * 思考内容（reasoning_content）。流式 chunk 与最终消息的 AssistantMessage metadata
-     * 中由 OpenAI Starter 以 "reasoningContent" key 承载；无则为 null。
-     */
+    /** 思考内容（reasoning_content），无则为 null。 */
     @JsonIgnore
     public String getReasoningContent() {
-        if (message instanceof AssistantMessage am) {
-            Object v = am.getMetadata().get("reasoningContent");
-            return v != null ? v.toString() : null;
-        }
-        return null;
+        return message != null ? message.getReasoningContent() : null;
     }
 
     @JsonIgnore
     public List<ToolCallInfo> getToolCalls() {
-        if (message instanceof AssistantMessage am && am.hasToolCalls()) {
-            return am.getToolCalls().stream()
+        if (message != null && message.hasToolCalls()) {
+            return message.getToolCalls().stream()
                     .map(tc -> new ToolCallInfo(tc.id(), tc.name(), tc.arguments()))
                     .toList();
         }
@@ -182,9 +169,9 @@ public final class MessageEvent extends AbstractEvent {
 
     @JsonIgnore
     public List<ToolResponseInfo> getResponses() {
-        if (message instanceof ToolResponseMessage trm) {
-            return trm.getResponses().stream()
-                    .map(r -> new ToolResponseInfo(r.id(), r.name(), r.responseData()))
+        if (message != null && message.getRole() == Role.TOOL && message.getToolResults() != null) {
+            return message.getToolResults().stream()
+                    .map(r -> new ToolResponseInfo(r.id(), r.name(), r.content()))
                     .toList();
         }
         return null;
@@ -193,7 +180,7 @@ public final class MessageEvent extends AbstractEvent {
     public static MessageEvent userMessage(String sessionId, String text) {
         return MessageEvent.builder()
                 .sessionId(sessionId)
-                .message(UserMessage.builder().text(text).build())
+                .message(ChatMessage.user(text))
                 .build();
     }
 
@@ -203,27 +190,26 @@ public final class MessageEvent extends AbstractEvent {
 
     /** 带思考内容的 STOP 事件（中途停止时把已生成的思考一并落盘，供历史重建）。 */
     public static MessageEvent assistantStop(String sessionId, String text, String reasoningContent) {
-        Map<String, Object> props = new HashMap<>();
-        props.put("finishReason", "STOP");
-        if (reasoningContent != null && !reasoningContent.isBlank()) {
-            props.put("reasoningContent", reasoningContent);
-        }
         return MessageEvent.builder()
                 .sessionId(sessionId)
-                .message(AssistantMessage.builder()
-                        .content(text)
-                        .properties(props)
-                        .build())
+                .message(ChatMessage.assistant(text, reasoningContent, null, "STOP"))
                 .build();
     }
 
     public static MessageEvent toolResponse(String sessionId, List<ToolResponseInfo> responses) {
-        List<ToolResponseMessage.ToolResponse> trList = responses.stream()
-                .map(r -> new ToolResponseMessage.ToolResponse(r.id(), r.name(), r.responseData()))
+        List<ToolResult> results = responses.stream()
+                .map(r -> new ToolResult(r.id(), r.name(), r.responseData()))
                 .toList();
         return MessageEvent.builder()
                 .sessionId(sessionId)
-                .message(ToolResponseMessage.builder().responses(trList).build())
+                .message(ChatMessage.toolResults(results))
+                .build();
+    }
+
+    public static MessageEvent fromChatMessage(String sessionId, ChatMessage message) {
+        return MessageEvent.builder()
+                .sessionId(sessionId)
+                .message(message)
                 .build();
     }
 

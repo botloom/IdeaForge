@@ -3,14 +3,15 @@ package cn.bitloom.agentic.permission.model;
 /**
  * 批准请求 — 传给 UI 层展示给用户。
  *
- * <p>支持两种操作类型：
+ * <p>支持三种操作类型：
  * <ul>
  *   <li>{@code COMMAND}：命令执行批准，使用 {@link #command} + {@link #commandClass}</li>
  *   <li>{@code FILE}：文件写操作批准，使用 {@link #toolName} + {@link #filePath} + {@link #action}</li>
+ *   <li>{@code PLUGIN}：动态插件挂载批准，使用 {@link #toolName} + {@link #action}，{@link #command} 携带插件摘要</li>
  * </ul>
  *
- * @param operation    操作类型（COMMAND / FILE）
- * @param command      原始命令文本（仅 COMMAND 有值）
+ * @param operation    操作类型（COMMAND / FILE / PLUGIN）
+ * @param command      原始命令文本（COMMAND）或插件摘要（PLUGIN）
  * @param commandClass 命令分类（仅 COMMAND 有值；FILE 时固定为 WRITE）
  * @param reason       需要批准的原因（用于 UI 展示）
  * @param projectDir   项目目录（用于 UI 展示批准会写入哪个项目的 .autiva）
@@ -37,5 +38,10 @@ public record ApprovalRequest(
     /** 文件写操作批准请求 */
     public static ApprovalRequest forFile(String toolName, String filePath, String action, String reason, String projectDir) {
         return new ApprovalRequest("FILE", null, CommandClass.WRITE, reason, projectDir, toolName, filePath, action);
+    }
+
+    /** 动态插件操作批准请求（summary 携带插件名/作用域/工具清单摘要，复用 command 字段传输） */
+    public static ApprovalRequest forPlugin(String toolName, String action, String summary, String reason, String projectDir) {
+        return new ApprovalRequest("PLUGIN", summary, CommandClass.WRITE, reason, projectDir, toolName, null, action);
     }
 }

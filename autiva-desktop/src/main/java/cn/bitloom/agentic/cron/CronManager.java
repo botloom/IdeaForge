@@ -3,15 +3,13 @@ package cn.bitloom.agentic.cron;
 import cn.bitloom.agentic.agent.Agent;
 import cn.bitloom.agentic.agent.AgentDefinition;
 import cn.bitloom.agentic.agent.AgentDefinitionManager;
-import cn.bitloom.agentic.agent.RuntimeContext;
-import cn.bitloom.agentic.agent.advisor.AgentMemoryAdvisor;
-import cn.bitloom.agentic.agent.advisor.AgentMemoryRecallAdvisor;
-import cn.bitloom.agentic.agent.advisor.SessionMemoryAdvisor;
-import cn.bitloom.agentic.hook.IAgentHook;
-import cn.bitloom.agentic.hook.PermissionHook;
-import cn.bitloom.agentic.hook.TodoReminderHook;
-import cn.bitloom.agentic.hook.ToolCallBudgetHook;
-import cn.bitloom.agentic.hook.ToolResultOffloadHook;
+import cn.bitloom.agentic.agent.interceptor.AgentMemoryInterceptor;
+import cn.bitloom.agentic.agent.interceptor.AgentMemoryRecallInterceptor;
+import cn.bitloom.agentic.agent.interceptor.PermissionInterceptor;
+import cn.bitloom.agentic.agent.interceptor.SessionMemoryInterceptor;
+import cn.bitloom.agentic.agent.interceptor.TodoReminderInterceptor;
+import cn.bitloom.agentic.agent.interceptor.ToolCallBudgetInterceptor;
+import cn.bitloom.agentic.agent.interceptor.ToolResultOffloadInterceptor;
 import cn.bitloom.agentic.permission.strategy.ToolApprovalStrategy;
 import cn.bitloom.config.ConfigManager;
 import cn.bitloom.agentic.event.MessageEvent;
@@ -28,73 +26,65 @@ import cn.bitloom.agentic.tool.command.ShellSession;
 import cn.bitloom.agentic.tool.session.ConversationSearchTool;
 import cn.bitloom.agentic.tool.session.CrossSessionSearchTool;
 import cn.bitloom.constant.AppConstants;
+import cn.bitloom.harness.llm.ChatModel;
+import cn.bitloom.harness.llm.Role;
+import cn.bitloom.harness.llm.TokenCountEstimator;
+import cn.bitloom.harness.loop.LoopContext;
+import cn.bitloom.harness.loop.LoopInterceptor;
+import cn.bitloom.harness.tool.ToolCallback;
 import cn.bitloom.store.Store;
+import cn.bitloom.util.AppScheduler;
 import com.fasterxml.jackson.annotation.JsonIgnore;
 import lombok.Getter;
 import lombok.Setter;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
-import org.springframework.ai.chat.client.ChatClient;
-import org.springframework.ai.chat.client.advisor.api.Advisor;
-import org.springframework.ai.chat.messages.MessageType;
-import org.springframework.ai.chat.model.ChatModel;
-import org.springframework.ai.tokenizer.JTokkitTokenCountEstimator;
-import org.springframework.ai.tool.ToolCallback;
-import org.springframework.ai.tool.method.MethodToolCallbackProvider;
-import org.springframework.beans.factory.annotation.Qualifier;
-import org.springframework.boot.context.event.ApplicationReadyEvent;
-import org.springframework.context.annotation.Lazy;
-import org.springframework.context.event.EventListener;
-import org.springframework.scheduling.TaskScheduler;
-import org.springframework.scheduling.support.CronTrigger;
-import org.springframework.stereotype.Component;
 
 import java.nio.file.Path;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ScheduledFuture;
+import java.util.function.Supplier;
 
 @Slf4j
-@Component
 public class CronManager {
 
     /** pending_delivery 重试间隔（秒） */
     private static final int PENDING_RETRY_SECONDS = 30;
 
-    private final TaskScheduler taskScheduler;
+    private final AppScheduler taskScheduler;
     private final FileSystemSessionManager fileSystemSessionManager;
     private final AgentDefinitionManager definitionManager;
     private final ModelFactory modelFactory;
-    private final Toolkit toolkit;
+    private final Supplier<Toolkit> toolkitProvider;
     private final List<ToolApprovalStrategy> approvalStrategies;
     private final ConfigManager configManager;
     private final CronTaskStore cronTaskStore;
     private final Map<String, CronTaskInfo> taskMap = new ConcurrentHashMap<>();
 
-    public CronManager(@Qualifier("taskScheduler") TaskScheduler taskScheduler,
-                       @Lazy FileSystemSessionManager fileSystemSessionManager,
-                       @Lazy AgentDefinitionManager definitionManager,
-                       @Lazy ModelFactory modelFactory,
-                       @Lazy Toolkit toolkit,
+    public CronManager(AppScheduler taskScheduler,
+                       FileSystemSessionManager fileSystemSessionManager,
+                       AgentDefinitionManager definitionManager,
+                       ModelFactory modelFactory,
+                       Supplier<Toolkit> toolkitProvider,
                        List<ToolApprovalStrategy> approvalStrategies,
                        ConfigManager configManager,
-                       @Lazy CronTaskStore cronTaskStore) {
+                       CronTaskStore cronTaskStore) {
         this.taskScheduler = taskScheduler;
         this.fileSystemSessionManager = fileSystemSessionManager;
         this.definitionManager = definitionManager;
         this.modelFactory = modelFactory;
-        this.toolkit = toolkit;
+        this.toolkitProvider = toolkitProvider;
         this.approvalStrategies = approvalStrategies;
         this.configManager = configManager;
         this.cronTaskStore = cronTaskStore;
         // pending_delivery 重试调度器：扫描待投递任务并重试
         taskScheduler.scheduleAtFixedRate(this::retryPendingDeliveries,
-                Instant.now().plusSeconds(PENDING_RETRY_SECONDS), Duration.ofSeconds(PENDING_RETRY_SECONDS));
+                Duration.ofSeconds(PENDING_RETRY_SECONDS), Duration.ofSeconds(PENDING_RETRY_SECONDS));
     }
 
     /**
@@ -106,7 +96,6 @@ public class CronManager {
      *   <li>pendingDelivery=true：恢复后立即投递一次</li>
      * </ul>
      */
-    @EventListener(ApplicationReadyEvent.class)
     public void restorePersistedTasks() {
         try {
             Map<String, List<CronTaskInfo>> all = cronTaskStore.loadAllSessions();
@@ -267,24 +256,23 @@ public class CronManager {
                 if (delaySeconds == null || delaySeconds <= 0) {
                     throw new IllegalArgumentException("一次性任务必须指定有效的延迟秒数");
                 }
-                Instant startTime = Instant.now().plusSeconds(delaySeconds);
-                yield taskScheduler.schedule(() -> executeTask(name), startTime);
+                yield taskScheduler.schedule(() -> executeTask(name), Duration.ofSeconds(delaySeconds));
             }
             case "interval" -> {
                 if (intervalSeconds == null || intervalSeconds <= 0) {
                     throw new IllegalArgumentException("周期性任务必须指定有效的间隔秒数");
                 }
-                Instant startTime = delaySeconds != null && delaySeconds > 0
-                        ? Instant.now().plusSeconds(delaySeconds)
-                        : Instant.now();
-                yield taskScheduler.scheduleAtFixedRate(() -> executeTask(name), startTime,
+                Duration initialDelay = delaySeconds != null && delaySeconds > 0
+                        ? Duration.ofSeconds(delaySeconds)
+                        : Duration.ZERO;
+                yield taskScheduler.scheduleAtFixedRate(() -> executeTask(name), initialDelay,
                         Duration.ofSeconds(intervalSeconds));
             }
             case "cron" -> {
                 if (StringUtils.isBlank(cronExpression)) {
                     throw new IllegalArgumentException("Cron任务必须指定cron表达式");
                 }
-                yield taskScheduler.schedule(() -> executeTask(name), new CronTrigger(cronExpression));
+                yield taskScheduler.scheduleCron(() -> executeTask(name), cronExpression);
             }
             default -> throw new IllegalArgumentException("不支持的任务类型: " + type);
         };
@@ -351,7 +339,7 @@ public class CronManager {
         Boolean executed = fileSystemSessionManager.tryWithLock(session.id(), () -> {
             try {
                 Agent agent = buildAgent(session, agentId);
-                RuntimeContext ctx = RuntimeContext.builder()
+                LoopContext ctx = LoopContext.builder()
                         .sessionId(session.id())
                         .userId(session.userId())
                         .build();
@@ -386,51 +374,47 @@ public class CronManager {
         ChatModel chatModel = modelFactory.model(Store.selectedModel.get());
         String uid = session.userId() != null ? session.userId() : "default-user";
 
-        List<Advisor> advisors = new ArrayList<>();
+        List<LoopInterceptor> interceptors = new ArrayList<>();
 
         // 纯 token 压缩：DS 上下文 1M，达到 80%（800k token）时触发，压缩到约 60%（480k token）
         TokenCountCompactionStrategy tokenStrategy = TokenCountCompactionStrategy.builder()
                 .maxTokens(480000)
                 .build();
 
-        SessionMemoryAdvisor sessionMemoryAdvisor = SessionMemoryAdvisor.builder(fileSystemSessionManager)
+        SessionMemoryInterceptor sessionMemoryInterceptor = SessionMemoryInterceptor.builder(fileSystemSessionManager)
                 .defaultUserId(uid)
-                .messageFilter(MessageFilter.byMessageType(MessageType.USER, MessageType.ASSISTANT, MessageType.TOOL)
+                .messageFilter(MessageFilter.byMessageType(Role.USER, Role.ASSISTANT, Role.TOOL)
                         .and(MessageFilter.skipEmptyMessages()))
                 .compactionTrigger(TokenCountTrigger.builder()
                         .threshold(800000)
-                        .tokenCountEstimator(new JTokkitTokenCountEstimator())
+                        .tokenCountEstimator(new TokenCountEstimator())
                         .build())
                 .compactionStrategy(tokenStrategy)
                 .build();
-        advisors.add(sessionMemoryAdvisor);
+        interceptors.add(sessionMemoryInterceptor);
 
         Path memoriesDir = AppConstants.Memory.workMemoryDir();
-        // 记忆自动化（cron 智能体）：选择式召回 + 整理触发器（提取 Hook 仅主智能体）
+        // 记忆自动化（cron 智能体）：选择式召回 + 整理触发器（提取拦截器仅主智能体）
         FileSystemAgentMemoryStore memoryStore = new FileSystemAgentMemoryStore(memoriesDir);
-        AgentMemoryAdvisor agentMemoryAdvisor = AgentMemoryAdvisor.builder()
+        AgentMemoryInterceptor agentMemoryInterceptor = AgentMemoryInterceptor.builder()
                 .memoryStore(memoryStore)
                 .memoriesRootDirectory(memoriesDir.toString())
                 .memoryConsolidationTrigger(
                         MemoryConsolidator.triggerWhen(memoryStore, MemoryConsolidator.DEFAULT_THRESHOLD))
                 .build();
-        advisors.add(agentMemoryAdvisor);
+        interceptors.add(agentMemoryInterceptor);
 
-        advisors.add(AgentMemoryRecallAdvisor.builder()
+        interceptors.add(AgentMemoryRecallInterceptor.builder()
                 .sessionManager(fileSystemSessionManager)
                 .memoryStore(memoryStore)
-                .chatClient(ChatClient.builder(chatModel).build())
+                .chatModel(chatModel)
                 .build());
 
-        List<ToolCallback> allTools = new ArrayList<>(toolkit.buildToolCallbacks(definition));
-        allTools.addAll(Arrays.asList(MethodToolCallbackProvider.builder()
-                .toolObjects(ConversationSearchTool.builder(fileSystemSessionManager).build())
-                .build()
-                .getToolCallbacks()));
-        allTools.addAll(Arrays.asList(MethodToolCallbackProvider.builder()
-                .toolObjects(CrossSessionSearchTool.builder(fileSystemSessionManager, uid).build())
-                .build()
-                .getToolCallbacks()));
+        List<ToolCallback> allTools = new ArrayList<>(toolkitProvider.get().buildToolCallbacks(definition));
+        allTools.add(ConversationSearchTool.builder(fileSystemSessionManager).build().toToolCallback());
+        allTools.add(CrossSessionSearchTool.builder(fileSystemSessionManager, uid).build().toToolCallback());
+
+        interceptors.addAll(buildBaseInterceptors());
 
         Agent agent = Agent.builder()
                 .name(agentId)
@@ -438,8 +422,7 @@ public class CronManager {
                 .model(chatModel)
                 .systemPrompt(definition.content() + ShellSession.envBlock())
                 .tools(allTools)
-                .hooks(buildBaseHooks())
-                .advisors(advisors)
+                .interceptors(interceptors)
                 // reactive_compact：上下文超长被 API 拒绝时强制压缩（绕过触发器）后重试一次
                 .reactiveCompactor(sid -> fileSystemSessionManager.compact(sid, req -> true, tokenStrategy))
                 .build();
@@ -448,16 +431,16 @@ public class CronManager {
     }
 
     /**
-     * 基础 Hook 集：预算保护 / 权限审批 / Todo 提醒 / 工具结果落盘。
+     * 基础拦截器集：预算保护 / 权限审批 / Todo 提醒 / 工具结果落盘。
      * 每次构建 Agent 都 new 新实例（内部持有 per-session 可变状态，避免多智能体共享串扰）。
      */
-    private List<IAgentHook> buildBaseHooks() {
-        List<IAgentHook> hooks = new ArrayList<>();
-        hooks.add(new ToolCallBudgetHook(configManager.getMaxToolCalls()));
-        hooks.add(new PermissionHook(approvalStrategies));
-        hooks.add(new TodoReminderHook());
-        hooks.add(new ToolResultOffloadHook());
-        return hooks;
+    private List<LoopInterceptor> buildBaseInterceptors() {
+        List<LoopInterceptor> interceptors = new ArrayList<>();
+        interceptors.add(new ToolCallBudgetInterceptor(configManager.getMaxToolCalls()));
+        interceptors.add(new PermissionInterceptor(approvalStrategies));
+        interceptors.add(new TodoReminderInterceptor());
+        interceptors.add(new ToolResultOffloadInterceptor());
+        return interceptors;
     }
 
     @Setter

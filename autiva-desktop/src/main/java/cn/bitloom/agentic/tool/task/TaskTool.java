@@ -1,23 +1,23 @@
 package cn.bitloom.agentic.tool.task;
 
 import cn.bitloom.agentic.agent.Agent;
-import cn.bitloom.agentic.agent.RuntimeContext;
 import cn.bitloom.agentic.event.MessageEvent;
 import cn.bitloom.agentic.session.FileSystemSessionManager;
 import cn.bitloom.agentic.session.Session;
 import cn.bitloom.agentic.tool.task.repository.TaskRepository;
-import cn.bitloom.agentic.tool.AbstractTool;
-import cn.bitloom.agentic.tool.ToolResult;
 import cn.bitloom.bridge.desktop.ToolUIBridge;
 import cn.bitloom.exception.AgentException;
+import cn.bitloom.harness.llm.ChatMessage;
+import cn.bitloom.harness.loop.LoopContext;
+import cn.bitloom.harness.tool.AbstractTool;
+import cn.bitloom.harness.tool.ToolResult;
+import cn.bitloom.harness.tool.ToolContext;
+import cn.bitloom.harness.tool.ToolParam;
+import cn.bitloom.util.Assert;
 import cn.bitloom.util.JsonUtils;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import lombok.extern.slf4j.Slf4j;
 import org.jspecify.annotations.NonNull;
-import org.springframework.ai.chat.messages.UserMessage;
-import org.springframework.ai.chat.model.ToolContext;
-import org.springframework.ai.tool.annotation.ToolParam;
-import org.springframework.util.Assert;
 
 import javafx.application.Platform;
 import java.util.HashMap;
@@ -35,7 +35,7 @@ import java.util.Objects;
  * - 通过 branch 字段隔离事件（branch 形如 "subagent.{name}"）
  * - SessionMemoryAdvisor 配合 EventFilter.forBranch(branch) 实现上下文隔离：
  *   子智能体仅可见自己 branch 的事件 + root 事件（主智能体历史）
- * - RuntimeContext 携带 branch，Agent.runStream 自动给事件打标
+ * - LoopContext 携带 branch，Agent.runStream 自动给事件打标
  * - 子智能体事件通过 ToolUIBridge 推送到 UI（taskId = branch）
  * - resume 时传入 branch 名以延续同名分支上下文
  */
@@ -193,7 +193,7 @@ public class TaskTool extends AbstractTool<TaskTool.Input> {
             metadata.put(MessageEvent.METADATA_NOTIFICATION, Boolean.TRUE);
             MessageEvent notification = MessageEvent.builder()
                     .sessionId(parentSessionId)
-                    .message(new UserMessage(text))
+                    .message(ChatMessage.user(text))
                     .metadata(metadata)
                     .build();
             sessionManager.appendEvent(notification);
@@ -250,10 +250,13 @@ public class TaskTool extends AbstractTool<TaskTool.Input> {
 
     /**
      * 从 ToolContext 解析父轮次 ID（子智能体的文件快照归档到同一轮，撤回时一并恢复）
+     * <p>
+     * LoopContext.toToolContext() 只透出标准键（sessionId/projectPath 等），
+     * 自定义键（turnId）通过 "runtimeContext" 键携带的 LoopContext 自身传递。
      */
     private String resolveTurnId(ToolContext context) {
-        if (context != null) {
-            Object turnId = context.getContext().get("turnId");
+        if (context != null && context.get("runtimeContext") instanceof LoopContext loop) {
+            Object turnId = loop.getParam("turnId");
             if (turnId instanceof String id) {
                 return id;
             }
@@ -266,7 +269,7 @@ public class TaskTool extends AbstractTool<TaskTool.Input> {
      * <p>
      * 流程：
      * 1. 构建带 branch 过滤的 Agent（SessionMemoryAdvisor 仅检索本 branch + root 事件）
-     * 2. RuntimeContext 携带 branch，Agent.runStream 自动给事件打标
+     * 2. LoopContext 携带 branch，Agent.runStream 自动给事件打标
      * 3. 通过 ToolUIBridge 推送事件到 UI（taskId = branch）
      * 4. 阻塞等待流完成（blockLast），累积 assistant 文本作为返回结果
      * <p>
@@ -280,7 +283,7 @@ public class TaskTool extends AbstractTool<TaskTool.Input> {
         MessageEvent inputEvent = MessageEvent.userMessage(parentSessionId, taskCall.prompt());
 
         Agent agent = subAgentFactory.build(parentSession, taskCall.subagentName(), branch, projectPath, null, null);
-        RuntimeContext ctx = RuntimeContext.builder()
+        LoopContext ctx = LoopContext.builder()
                 .sessionId(parentSessionId)
                 .userId(parentSession.userId())
                 .branch(branch)

@@ -20,9 +20,8 @@ import java.util.ArrayList;
 import java.util.List;
 
 import cn.bitloom.agentic.event.MessageEvent;
-import org.springframework.ai.tokenizer.JTokkitTokenCountEstimator;
-import org.springframework.ai.tokenizer.TokenCountEstimator;
-import org.springframework.util.Assert;
+import cn.bitloom.harness.llm.TokenCountEstimator;
+import cn.bitloom.util.Assert;
 
 /**
  * Compaction strategy that retains events within a maximum estimated token budget. Token
@@ -140,7 +139,7 @@ public final class TokenCountCompactionStrategy implements CompactionStrategy {
 
 		private int maxTokens = DEFAULT_MAX_TOKENS;
 
-		private TokenCountEstimator tokenCountEstimator = new JTokkitTokenCountEstimator();
+		private TokenCountEstimator tokenCountEstimator = new TokenCountEstimator();
 
 		private Builder() {
 		}

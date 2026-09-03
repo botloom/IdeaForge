@@ -24,15 +24,15 @@ import org.jspecify.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import org.springframework.ai.chat.model.ToolContext;
+import cn.bitloom.harness.tool.ToolContext;
 import cn.bitloom.agentic.session.EventFilter;
 import cn.bitloom.agentic.event.AbstractEvent;
 import cn.bitloom.agentic.event.MessageEvent;
-import cn.bitloom.agentic.tool.AbstractTool;
-import cn.bitloom.agentic.tool.ToolResult;
+import cn.bitloom.harness.tool.AbstractTool;
+import cn.bitloom.harness.tool.ToolResult;
 import cn.bitloom.util.JsonUtils;
-import org.springframework.ai.tool.annotation.ToolParam;
-import org.springframework.util.StringUtils;
+import cn.bitloom.harness.tool.ToolParam;
+import org.apache.commons.lang3.StringUtils;
 import cn.bitloom.agentic.session.ISessionManager;
 
 /**
@@ -90,10 +90,10 @@ public class ConversationSearchTool extends AbstractTool<ConversationSearchTool.
 		List<Map<String, String>> results = events.stream()
 			.filter(e -> e instanceof MessageEvent)
 			.map(e -> (MessageEvent) e)
-			.filter(e -> StringUtils.hasText(e.getMessage().getText()))
+			.filter(e -> StringUtils.isNotBlank(e.getMessage().getText()))
 			.map(e -> Map.of(
 				"timestamp", e.getTimestamp().toString(),
-				"type", e.getMessageType().getValue(),
+				"type", e.getMessageType().name(),
 				"text", e.getMessage().getText()
 			))
 			.toList();
@@ -113,7 +113,7 @@ public class ConversationSearchTool extends AbstractTool<ConversationSearchTool.
 
 		Map<String, Object> context = toolContext.getContext();
 		Object sessionIdValue = context.get(SESSION_ID_CONTEXT_KEY);
-		// 兼容旧路径：RuntimeContext 以 "sessionId" 键注入 ToolContext 的场景
+		// 兼容旧路径：LoopContext 以 "sessionId" 键注入 ToolContext 的场景
 		if (sessionIdValue == null) {
 			sessionIdValue = context.get("sessionId");
 		}

@@ -11,7 +11,6 @@ import javafx.application.Platform;
 import javafx.scene.Node;
 import lombok.Setter;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.stereotype.Component;
 
 import java.util.Map;
 import java.util.UUID;
@@ -21,7 +20,6 @@ import java.util.function.BiConsumer;
 import java.util.function.Consumer;
 
 @Slf4j
-@Component
 public class ToolUIBridge {
 
     private final Map<String, CompletableFuture<String>> pendingQuestions = new ConcurrentHashMap<>();

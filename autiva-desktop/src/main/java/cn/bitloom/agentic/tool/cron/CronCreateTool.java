@@ -1,13 +1,13 @@
 package cn.bitloom.agentic.tool.cron;
 
-import cn.bitloom.agentic.tool.AbstractTool;
-import cn.bitloom.agentic.tool.ToolResult;
+import cn.bitloom.harness.tool.AbstractTool;
+import cn.bitloom.harness.tool.ToolResult;
 import cn.bitloom.agentic.cron.CronManager;
 import cn.bitloom.store.Store;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.ai.chat.model.ToolContext;
-import org.springframework.ai.tool.annotation.ToolParam;
-import org.springframework.util.Assert;
+import cn.bitloom.harness.tool.ToolContext;
+import cn.bitloom.harness.tool.ToolParam;
+import cn.bitloom.util.Assert;
 
 /**
  * 创建定时任务工具，支持三种类型：once（一次性任务）、interval（周期性任务）、cron（cron表达式任务）。

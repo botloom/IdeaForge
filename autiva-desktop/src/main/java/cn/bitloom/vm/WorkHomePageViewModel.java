@@ -10,7 +10,6 @@ import cn.bitloom.agentic.tool.command.ShellSession;
 import cn.bitloom.constant.AppConstants;
 import cn.bitloom.store.Store;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.stereotype.Component;
 
 import java.nio.file.Path;
 import java.util.List;
@@ -22,7 +21,6 @@ import java.util.List;
  * buildMessageWithContext 直接返回原文，onSwitchAgent 空实现。
  */
 @Slf4j
-@Component
 public class WorkHomePageViewModel extends AbstractHomePageViewModel {
 
     public WorkHomePageViewModel(FileSystemSessionManager fileSystemSessionManager,
@@ -34,9 +32,10 @@ public class WorkHomePageViewModel extends AbstractHomePageViewModel {
                                  cn.bitloom.config.ConfigManager configManager,
                                  cn.bitloom.agentic.tool.mcp.McpConnectionManager mcpConnectionManager,
                                  cn.bitloom.agentic.goal.GoalManager goalManager,
-                                 cn.bitloom.bridge.desktop.ToolUIBridge toolUIBridge) {
+                                 cn.bitloom.bridge.desktop.ToolUIBridge toolUIBridge,
+                                 cn.bitloom.agentic.plugin.PluginRegistry pluginRegistry) {
         super(fileSystemSessionManager, definitionManager, modelFactory, toolkit, skillManager, approvalStrategies,
-                configManager, mcpConnectionManager, goalManager, toolUIBridge);
+                configManager, mcpConnectionManager, goalManager, toolUIBridge, pluginRegistry);
     }
 
     @Override
@@ -59,6 +58,12 @@ public class WorkHomePageViewModel extends AbstractHomePageViewModel {
     protected String buildSystemPrompt(AgentDefinition definition) {
         // work 模式无项目：仅附环境块（Working directory = 持久化 cwd）
         return definition.content() + ShellSession.envBlock();
+    }
+
+    @Override
+    protected cn.bitloom.agentic.agent.assembly.AgentProfile createProfile(
+            cn.bitloom.agentic.agent.assembly.AgentAssemblyContext ctx) {
+        return new cn.bitloom.agentic.agent.assembly.WorkProfile(ctx);
     }
 
     @Override

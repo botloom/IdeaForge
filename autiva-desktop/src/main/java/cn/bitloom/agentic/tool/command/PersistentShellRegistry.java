@@ -3,7 +3,6 @@ package cn.bitloom.agentic.tool.command;
 import cn.bitloom.agentic.tool.command.shell.ShellExecutor;
 import lombok.Getter;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.stereotype.Component;
 
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
@@ -19,7 +18,6 @@ import java.util.concurrent.ConcurrentMap;
  * <p>会话关闭时应调用 {@link #close(String)} 清理对应 shell 进程，避免泄漏。
  */
 @Slf4j
-@Component
 public class PersistentShellRegistry {
 
     private final ConcurrentMap<String, PersistentShellSession> sessions = new ConcurrentHashMap<>();

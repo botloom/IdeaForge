@@ -3,7 +3,7 @@ package cn.bitloom.agentic.team;
 import cn.bitloom.agentic.agent.Agent;
 import cn.bitloom.agentic.agent.AgentDefinition;
 import cn.bitloom.agentic.agent.AgentDefinitionManager;
-import cn.bitloom.agentic.agent.RuntimeContext;
+import cn.bitloom.harness.loop.LoopContext;
 import cn.bitloom.agentic.event.MessageEvent;
 import cn.bitloom.agentic.session.FileSystemSessionManager;
 import cn.bitloom.agentic.session.Session;
@@ -18,9 +18,7 @@ import cn.bitloom.bridge.desktop.ToolUIBridge;
 import cn.bitloom.util.JsonUtils;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.ai.tool.ToolCallback;
-import org.springframework.beans.factory.annotation.Qualifier;
-import org.springframework.stereotype.Component;
+import cn.bitloom.harness.tool.ToolCallback;
 import reactor.core.publisher.Mono;
 import reactor.core.scheduler.Schedulers;
 
@@ -40,7 +38,6 @@ import java.util.concurrent.ConcurrentHashMap;
  * 并行执行，事件写入靠 JSONL 追加的原子性。唤醒本身不阻塞调用方（工具线程/轮询线程）。
  */
 @Slf4j
-@Component
 public class TeammateRuntime {
 
     /** 唤醒触发器（解耦 SendMessageTool ↔ TeammateRuntime 的构造循环） */
@@ -56,7 +53,7 @@ public class TeammateRuntime {
     private final cn.bitloom.agentic.agent.SubAgentFactory subAgentFactory;
     private final ToolUIBridge toolUIBridge;
     private final TaskBoardRepository taskBoard;
-    private final org.springframework.scheduling.TaskScheduler taskScheduler;
+    private final cn.bitloom.util.AppScheduler taskScheduler;
 
     /** 唤醒去重：正在执行 wake 检查的队友（极短临界区，仅防轮询与消息触发并发竞争） */
     private final ConcurrentHashMap<String, Boolean> waking = new ConcurrentHashMap<>();
@@ -68,7 +65,7 @@ public class TeammateRuntime {
             cn.bitloom.agentic.agent.SubAgentFactory subAgentFactory,
             ToolUIBridge toolUIBridge,
             TaskBoardRepository taskBoard,
-            @Qualifier("taskScheduler") org.springframework.scheduling.TaskScheduler taskScheduler) {
+            cn.bitloom.util.AppScheduler taskScheduler) {
         this.registry = registry;
         this.mailbox = mailbox;
         this.sessionManager = sessionManager;
@@ -79,7 +76,7 @@ public class TeammateRuntime {
         this.taskScheduler = taskScheduler;
         // 手动注册轮询（项目未启用 @EnableScheduling，与 CronManager 同风格）
         taskScheduler.scheduleWithFixedDelay(this::pollIdleTeammates,
-                java.time.Instant.now().plusSeconds(20), java.time.Duration.ofSeconds(15));
+                java.time.Duration.ofSeconds(20), java.time.Duration.ofSeconds(15));
     }
 
     /**
@@ -152,7 +149,7 @@ public class TeammateRuntime {
             Session session = sessionManager.getById(sessionId);
             String projectPath = teammate.effectiveProjectPath();
             Agent agent = buildAgent(session, teammate, projectPath);
-            RuntimeContext ctx = RuntimeContext.builder()
+            LoopContext ctx = LoopContext.builder()
                     .sessionId(sessionId)
                     .userId(session.userId())
                     .branch(teammate.branch())

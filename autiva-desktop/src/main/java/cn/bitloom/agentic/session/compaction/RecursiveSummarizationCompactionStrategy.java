@@ -28,14 +28,12 @@ import org.jspecify.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import org.springframework.ai.chat.client.ChatClient;
-import org.springframework.ai.chat.messages.AssistantMessage;
-import org.springframework.ai.chat.messages.MessageType;
-import org.springframework.ai.chat.messages.UserMessage;
 import cn.bitloom.agentic.event.MessageEvent;
-import org.springframework.ai.tokenizer.JTokkitTokenCountEstimator;
-import org.springframework.ai.tokenizer.TokenCountEstimator;
-import org.springframework.util.Assert;
+import cn.bitloom.harness.llm.ChatMessage;
+import cn.bitloom.harness.llm.ChatModel;
+import cn.bitloom.harness.llm.Role;
+import cn.bitloom.harness.llm.TokenCountEstimator;
+import cn.bitloom.util.Assert;
 
 /**
  * 由 LLM 驱动的压缩策略，采用滑动窗口方式将较早的会话事件总结为
@@ -99,7 +97,7 @@ public final class RecursiveSummarizationCompactionStrategy implements Compactio
 			- 若提供了之前的总结，应自然地进行整合——不要逐字重复。
 			""";
 
-	private final ChatClient chatClient;
+	private final ChatModel chatModel;
 
 	private final int maxEventsToKeep;
 
@@ -115,11 +113,11 @@ public final class RecursiveSummarizationCompactionStrategy implements Compactio
 
 	private final Function<MessageEvent, String> eventFormatter;
 
-	private RecursiveSummarizationCompactionStrategy(ChatClient chatClient, int maxEventsToKeep, int overlapSize,
+	private RecursiveSummarizationCompactionStrategy(ChatModel chatModel, int maxEventsToKeep, int overlapSize,
 			String systemPrompt, String shadowPrompt, TokenCountEstimator tokenCountEstimator,
 			@Nullable Consumer<CompactionRequest> onSummarizationFailure,
 			Function<MessageEvent, String> eventFormatter) {
-		Assert.notNull(chatClient, "chatClient 不能为空");
+		Assert.notNull(chatModel, "chatModel 不能为空");
 		Assert.isTrue(maxEventsToKeep > 0, "maxEventsToKeep 必须大于 0");
 		Assert.isTrue(overlapSize >= 0, "overlapSize 必须 >= 0");
 		Assert.isTrue(overlapSize < maxEventsToKeep, "overlapSize 必须小于 maxEventsToKeep");
@@ -127,7 +125,7 @@ public final class RecursiveSummarizationCompactionStrategy implements Compactio
 		Assert.hasText(shadowPrompt, "shadowPrompt 不能为空");
 		Assert.notNull(tokenCountEstimator, "tokenCountEstimator 不能为空");
 		Assert.notNull(eventFormatter, "eventFormatter 不能为空");
-		this.chatClient = chatClient;
+		this.chatModel = chatModel;
 		this.maxEventsToKeep = maxEventsToKeep;
 		this.overlapSize = overlapSize;
 		this.systemPrompt = systemPrompt;
@@ -190,8 +188,8 @@ public final class RecursiveSummarizationCompactionStrategy implements Compactio
 		// 为 LLM 构建用户提示
 		String userPrompt = buildSummarizationPrompt(syntheticEvents, toArchive, overlapEvents);
 
-		// 调用 LLM
-		String summary = this.chatClient.prompt().system(this.systemPrompt).user(userPrompt).call().content();
+		// 调用 LLM（流式聚合文本，无工具；压缩在非 Netty 线程上阻塞等待）
+		String summary = callSummarizer(userPrompt);
 
 		if (summary == null || summary.isBlank()) {
 			logger.warn(
@@ -218,13 +216,13 @@ public final class RecursiveSummarizationCompactionStrategy implements Compactio
 				MessageEvent.builder()
 					.sessionId(sessionId)
 					.timestamp(now)
-					.message(new UserMessage(this.shadowPrompt))
+					.message(ChatMessage.user(this.shadowPrompt))
 					.metadata(new HashMap<>(summaryMetadata))
 					.build(),
 				MessageEvent.builder()
 					.sessionId(sessionId)
 					.timestamp(now)
-					.message(new AssistantMessage(summary))
+					.message(ChatMessage.assistant(summary))
 					.metadata(new HashMap<>(summaryMetadata))
 					.build());
 
@@ -263,7 +261,7 @@ public final class RecursiveSummarizationCompactionStrategy implements Compactio
 			// 排除合成的 USER 影子提示——它们只是结构性占位符，
 			// 并非总结内容。仅包含文本承载了实际压缩历史的 ASSISTANT（及遗留 SYSTEM）事件。
 			priorSummaries.stream()
-				.filter(e -> e.getMessageType() != MessageType.USER)
+				.filter(e -> e.getMessageType() != Role.USER)
 				.forEach(e -> prompt.append(e.getMessage().getText()).append("\n"));
 			prompt.append("\n");
 		}
@@ -284,15 +282,34 @@ public final class RecursiveSummarizationCompactionStrategy implements Compactio
 		return CompactionUtils.formatEvent(event);
 	}
 
+	/**
+	 * 调用总结 LLM：流式请求（system + user，无工具）并聚合文本增量。
+	 * 压缩策略是同步 API，调用方需保证不在 Netty event loop 线程上触发。
+	 */
+	private String callSummarizer(String userPrompt) {
+		List<ChatMessage> messages = List.of(
+				ChatMessage.system(this.systemPrompt),
+				ChatMessage.user(userPrompt));
+		StringBuilder collected = new StringBuilder();
+		this.chatModel.stream(messages, List.of(), null)
+				.doOnNext(chunk -> {
+					if (chunk.deltaText() != null) {
+						collected.append(chunk.deltaText());
+					}
+				})
+				.blockLast();
+		return collected.toString();
+	}
+
 	// --- Builder ---
 
-	public static Builder builder(ChatClient chatClient) {
-		return new Builder(chatClient);
+	public static Builder builder(ChatModel chatModel) {
+		return new Builder(chatModel);
 	}
 
 	public static final class Builder {
 
-		private final ChatClient chatClient;
+		private final ChatModel chatModel;
 
 		private int maxEventsToKeep = DEFAULT_MAX_EVENTS_TO_KEEP;
 
@@ -302,15 +319,15 @@ public final class RecursiveSummarizationCompactionStrategy implements Compactio
 
 		private String shadowPrompt = DEFAULT_SUMMARY_SHADOW_PROMPT;
 
-		private TokenCountEstimator tokenCountEstimator = new JTokkitTokenCountEstimator();
+		private TokenCountEstimator tokenCountEstimator = new TokenCountEstimator();
 
 		@Nullable private Consumer<CompactionRequest> onSummarizationFailure;
 
 		private Function<MessageEvent, String> eventFormatter = RecursiveSummarizationCompactionStrategy::formatEvent;
 
-		private Builder(ChatClient chatClient) {
-			Assert.notNull(chatClient, "chatClient 不能为空");
-			this.chatClient = chatClient;
+		private Builder(ChatModel chatModel) {
+			Assert.notNull(chatModel, "chatModel 不能为空");
+			this.chatModel = chatModel;
 		}
 
 		/**
@@ -354,7 +371,7 @@ public final class RecursiveSummarizationCompactionStrategy implements Compactio
 
 		/**
 		 * 覆盖用于计算 {@code tokensEstimatedSaved} 的 token 估算器。
-		 * 默认值为 {@link JTokkitTokenCountEstimator}。
+		 * 默认值为 {@link TokenCountEstimator}。
 		 */
 		public Builder tokenCountEstimator(TokenCountEstimator tokenCountEstimator) {
 			Assert.notNull(tokenCountEstimator, "tokenCountEstimator 不能为空");
@@ -391,7 +408,7 @@ public final class RecursiveSummarizationCompactionStrategy implements Compactio
 				throw new IllegalArgumentException("overlapSize (" + this.overlapSize
 						+ ") 必须小于 maxEventsToKeep (" + this.maxEventsToKeep + ")");
 			}
-			return new RecursiveSummarizationCompactionStrategy(this.chatClient, this.maxEventsToKeep, this.overlapSize,
+			return new RecursiveSummarizationCompactionStrategy(this.chatModel, this.maxEventsToKeep, this.overlapSize,
 					this.systemPrompt, this.shadowPrompt, this.tokenCountEstimator, this.onSummarizationFailure,
 					this.eventFormatter);
 		}

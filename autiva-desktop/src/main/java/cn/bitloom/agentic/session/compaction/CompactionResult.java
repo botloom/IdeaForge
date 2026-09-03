@@ -19,7 +19,7 @@ package cn.bitloom.agentic.session.compaction;
 import java.util.List;
 
 import cn.bitloom.agentic.event.MessageEvent;
-import org.springframework.util.Assert;
+import cn.bitloom.util.Assert;
 
 /**
  * The outcome of a compaction operation.

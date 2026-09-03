@@ -1,10 +1,15 @@
 package cn.bitloom.agentic.agent;
 
-import cn.bitloom.agentic.agent.advisor.AgentMemoryAdvisor;
-import cn.bitloom.agentic.agent.advisor.EnvironmentContextAdvisor;
-import cn.bitloom.agentic.agent.advisor.AgentMemoryRecallAdvisor;
-import cn.bitloom.agentic.agent.advisor.SessionMemoryAdvisor;
-import cn.bitloom.agentic.agent.advisor.SkillContextAdvisor;
+import cn.bitloom.agentic.agent.interceptor.AgentMemoryInterceptor;
+import cn.bitloom.agentic.agent.interceptor.AgentMemoryRecallInterceptor;
+import cn.bitloom.agentic.agent.interceptor.EnvironmentContextInterceptor;
+import cn.bitloom.agentic.agent.interceptor.FileChangeRecorderInterceptor;
+import cn.bitloom.agentic.agent.interceptor.PermissionInterceptor;
+import cn.bitloom.agentic.agent.interceptor.SessionMemoryInterceptor;
+import cn.bitloom.agentic.agent.interceptor.SkillContextInterceptor;
+import cn.bitloom.agentic.agent.interceptor.ToolCallBudgetInterceptor;
+import cn.bitloom.agentic.agent.interceptor.ToolCardEventInterceptor;
+import cn.bitloom.agentic.agent.interceptor.ToolResultOffloadInterceptor;
 import cn.bitloom.agentic.skill.SkillManager;
 import cn.bitloom.agentic.memory.FileSystemAgentMemoryStore;
 import cn.bitloom.agentic.memory.MemoryConsolidator;
@@ -19,43 +24,35 @@ import cn.bitloom.agentic.tool.Toolkit;
 import cn.bitloom.agentic.tool.command.ShellSession;
 import cn.bitloom.agentic.tool.session.ConversationSearchTool;
 import cn.bitloom.agentic.tool.session.CrossSessionSearchTool;
-import cn.bitloom.agentic.hook.FileChangeRecorderHook;
-import cn.bitloom.agentic.hook.IAgentHook;
-import cn.bitloom.agentic.hook.PermissionHook;
-import cn.bitloom.agentic.hook.ToolCallBudgetHook;
-import cn.bitloom.agentic.hook.ToolResultOffloadHook;
 import cn.bitloom.agentic.permission.strategy.ToolApprovalStrategy;
 import cn.bitloom.config.ConfigManager;
 import cn.bitloom.constant.AppConstants;
 import cn.bitloom.exception.AgentException;
+import cn.bitloom.harness.llm.ChatModel;
+import cn.bitloom.harness.llm.Role;
+import cn.bitloom.harness.llm.TokenCountEstimator;
+import cn.bitloom.harness.loop.LoopInterceptor;
+import cn.bitloom.harness.tool.ToolCallback;
 import cn.bitloom.store.Store;
-import org.springframework.ai.chat.client.ChatClient;
-import org.springframework.ai.chat.client.advisor.api.Advisor;
-import org.springframework.ai.chat.messages.MessageType;
-import org.springframework.ai.chat.model.ChatModel;
-import org.springframework.ai.tokenizer.JTokkitTokenCountEstimator;
-import org.springframework.ai.tool.ToolCallback;
-import org.springframework.beans.factory.ObjectProvider;
-import org.springframework.stereotype.Component;
 
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.function.Supplier;
 
 /**
  * 子智能体构建工厂 — TaskTool（一次性委派）/ TeammateRuntime（持久队友）/
  * WorkflowContext（编排原语）共用的 Agent 构建逻辑。
  *
- * <p>统一模式：复用父 Session + branch 事件隔离（EventFilter.forBranch）+
- * 四步压缩管线 + reactive_compact + 记忆自动化 Advisor。
+ * <p>统一模式：复用父 Session + branch 事件隔离 + 四步压缩管线 + reactive_compact
+ * + 记忆自动化拦截器。
  */
-@Component
 public class SubAgentFactory {
 
     private final FileSystemSessionManager sessionManager;
     private final AgentDefinitionManager definitionManager;
     private final ModelFactory modelFactory;
-    private final ObjectProvider<Toolkit> toolkitProvider;
+    private final Supplier<Toolkit> toolkitProvider;
     private final SkillManager skillManager;
     private final List<ToolApprovalStrategy> approvalStrategies;
     private final ConfigManager configManager;
@@ -63,7 +60,7 @@ public class SubAgentFactory {
     public SubAgentFactory(FileSystemSessionManager sessionManager,
             AgentDefinitionManager definitionManager,
             ModelFactory modelFactory,
-            ObjectProvider<Toolkit> toolkitProvider,
+            Supplier<Toolkit> toolkitProvider,
             SkillManager skillManager,
             List<ToolApprovalStrategy> approvalStrategies,
             ConfigManager configManager) {
@@ -97,44 +94,46 @@ public class SubAgentFactory {
         ChatModel chatModel = modelFactory.model(Store.selectedModel.get());
         String uid = parentSession.userId() != null ? parentSession.userId() : "default-user";
 
-        List<Advisor> advisors = new ArrayList<>();
+        List<LoopInterceptor> interceptors = new ArrayList<>();
 
         // 纯 token 压缩：DS 上下文 1M，达到 80%（800k token）时触发，压缩到约 60%（480k token）
         TokenCountCompactionStrategy tokenStrategy = TokenCountCompactionStrategy.builder()
                 .maxTokens(480000)
                 .build();
 
-        // EventFilter.forBranch(branch): 子智能体仅能看到自己 branch 的事件 + root 事件
-        SessionMemoryAdvisor sessionMemoryAdvisor = SessionMemoryAdvisor.builder(sessionManager)
+        // EventFilter.forBranch(branch): 子智能体仅能看到自己 branch 的事件 + root 事件。
+        // SessionMemoryInterceptor 也会按 ctx.branch() 自动合并 branch 过滤，此处显式传入
+        // 保证即使 branch 透传缺失也能正确隔离。
+        SessionMemoryInterceptor sessionMemoryInterceptor = SessionMemoryInterceptor.builder(sessionManager)
                 .defaultUserId(uid)
                 .eventFilter(EventFilter.forBranch(branch))
-                .messageFilter(MessageFilter.byMessageType(MessageType.USER, MessageType.ASSISTANT, MessageType.TOOL)
+                .messageFilter(MessageFilter.byMessageType(Role.USER, Role.ASSISTANT, Role.TOOL)
                         .and(MessageFilter.skipEmptyMessages()))
                 .compactionTrigger(TokenCountTrigger.builder()
                         .threshold(800000)
-                        .tokenCountEstimator(new JTokkitTokenCountEstimator())
+                        .tokenCountEstimator(new TokenCountEstimator())
                         .build())
                 .compactionStrategy(tokenStrategy)
                 .build();
-        advisors.add(sessionMemoryAdvisor);
+        interceptors.add(sessionMemoryInterceptor);
 
         Path memoriesDir = resolveMemoriesDir(parentSession.id());
         FileSystemAgentMemoryStore memoryStore = new FileSystemAgentMemoryStore(memoriesDir);
-        advisors.add(AgentMemoryAdvisor.builder()
+        interceptors.add(AgentMemoryInterceptor.builder()
                 .memoryStore(memoryStore)
                 .memoriesRootDirectory(memoriesDir.toString())
                 .memoryConsolidationTrigger(
                         MemoryConsolidator.triggerWhen(memoryStore, MemoryConsolidator.DEFAULT_THRESHOLD))
                 .build());
-        advisors.add(AgentMemoryRecallAdvisor.builder()
+        interceptors.add(AgentMemoryRecallInterceptor.builder()
                 .sessionManager(sessionManager)
                 .memoryStore(memoryStore)
-                .chatClient(ChatClient.builder(chatModel).build())
+                .chatModel(chatModel)
                 .build());
-        advisors.add(SkillContextAdvisor.builder().skillManager(skillManager).build());
-        advisors.add(EnvironmentContextAdvisor.builder().build());
+        interceptors.add(SkillContextInterceptor.builder().skillManager(skillManager).build());
+        interceptors.add(EnvironmentContextInterceptor.builder().build());
 
-        List<ToolCallback> allTools = new ArrayList<>(toolkitProvider.getObject().buildToolCallbacks(definition));
+        List<ToolCallback> allTools = new ArrayList<>(toolkitProvider.get().buildToolCallbacks(definition));
         allTools.add(ConversationSearchTool.builder(sessionManager).build().toToolCallback());
         allTools.add(CrossSessionSearchTool.builder(sessionManager, uid).build().toToolCallback());
         if (extraTools != null) {
@@ -148,8 +147,7 @@ public class SubAgentFactory {
                 .systemPrompt(systemPromptOverride != null ? systemPromptOverride
                         : definition.content() + ShellSession.envBlock())
                 .tools(allTools)
-                .hooks(buildBaseHooks())
-                .advisors(advisors)
+                .interceptors(mergeInterceptors(interceptors, buildBaseInterceptors()))
                 // reactive_compact：上下文超长被 API 拒绝时强制压缩（绕过触发器）后重试一次
                 .reactiveCompactor(sid -> sessionManager.compact(sid, req -> true, tokenStrategy))
                 .build();
@@ -170,17 +168,25 @@ public class SubAgentFactory {
     }
 
     /**
-     * 基础 Hook 集：预算保护 / 权限审批 / 工具结果落盘 / 工具卡片事件（供 TaskCard 展示工具调用）。
-     * 每次构建 Agent 都 new 新实例（内部持有 per-session 可变状态，避免多智能体共享串扰）。
-     * 注意：不挂 TodoReminderHook——子智能体未提供 TodoWrite 工具，提醒反而误导。
+     * 基础拦截器集：预算保护 / 权限审批 / 文件快照 / 工具结果落盘 / 工具卡片事件
+     * （供 TaskCard 展示工具调用）。每次构建 Agent 都 new 新实例（内部持有 per-session
+     * 可变状态，避免多智能体共享串扰）。
+     * 注意：不挂 TodoReminderInterceptor——子智能体未提供 TodoWrite 工具，提醒反而误导。
      */
-    private List<IAgentHook> buildBaseHooks() {
-        List<IAgentHook> hooks = new ArrayList<>();
-        hooks.add(new ToolCallBudgetHook(configManager.getMaxToolCalls()));
-        hooks.add(new PermissionHook(approvalStrategies));
-        hooks.add(new FileChangeRecorderHook());
-        hooks.add(new ToolResultOffloadHook());
-        hooks.add(new cn.bitloom.agentic.hook.ToolCardEventHook());
-        return hooks;
+    private List<LoopInterceptor> buildBaseInterceptors() {
+        List<LoopInterceptor> interceptors = new ArrayList<>();
+        interceptors.add(new ToolCallBudgetInterceptor(configManager.getMaxToolCalls()));
+        interceptors.add(new PermissionInterceptor(approvalStrategies));
+        interceptors.add(new FileChangeRecorderInterceptor());
+        interceptors.add(new ToolResultOffloadInterceptor());
+        interceptors.add(new ToolCardEventInterceptor());
+        return interceptors;
+    }
+
+    /** 组装拦截器：记忆/上下文拦截器（高 order）在前，基础工具拦截器（低 order）在后。 */
+    private List<LoopInterceptor> mergeInterceptors(List<LoopInterceptor> head, List<LoopInterceptor> tail) {
+        List<LoopInterceptor> merged = new ArrayList<>(head);
+        merged.addAll(tail);
+        return merged;
     }
 }

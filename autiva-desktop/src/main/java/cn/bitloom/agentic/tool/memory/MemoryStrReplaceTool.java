@@ -4,13 +4,13 @@ import java.io.IOException;
 
 import org.jspecify.annotations.NonNull;
 import org.jspecify.annotations.Nullable;
-import org.springframework.ai.chat.model.ToolContext;
-import org.springframework.ai.tool.annotation.ToolParam;
-import org.springframework.util.StringUtils;
+import cn.bitloom.harness.tool.ToolContext;
+import cn.bitloom.harness.tool.ToolParam;
+import org.apache.commons.lang3.StringUtils;
 
 import cn.bitloom.agentic.memory.AgentMemoryStore;
-import cn.bitloom.agentic.tool.AbstractTool;
-import cn.bitloom.agentic.tool.ToolResult;
+import cn.bitloom.harness.tool.AbstractTool;
+import cn.bitloom.harness.tool.ToolResult;
 
 /**
  * 记忆字符串替换工具，替换现有记忆文件中的精确字符串。
@@ -67,7 +67,7 @@ public class MemoryStrReplaceTool extends AbstractTool<MemoryStrReplaceTool.Inpu
 
 			store.writeFile(input.path(), updated);
 
-			if (!StringUtils.hasText(replacement)) {
+			if (!StringUtils.isNotBlank(replacement)) {
 				return ToolResult.success(String.format("成功从 %s 中删除匹配文本。", input.path()));
 			}
 

@@ -1,12 +1,12 @@
 package cn.bitloom.agentic.tool.file;
 
-import cn.bitloom.agentic.tool.AbstractTool;
-import cn.bitloom.agentic.tool.ToolResult;
 import cn.bitloom.agentic.tool.ToolUtils;
+import cn.bitloom.harness.tool.AbstractTool;
+import cn.bitloom.harness.tool.ToolResult;
+import cn.bitloom.harness.tool.ToolContext;
+import cn.bitloom.harness.tool.ToolParam;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.ai.chat.model.ToolContext;
-import org.springframework.ai.tool.annotation.ToolParam;
-import org.springframework.util.StringUtils;
+import org.apache.commons.lang3.StringUtils;
 
 import java.io.BufferedReader;
 import java.io.IOException;
@@ -238,7 +238,7 @@ public class GrepTool extends AbstractTool<GrepTool.Input> {
     private List<PathMatcher> buildGlobMatchers(String glob, String type) {
         List<PathMatcher> matchers = new ArrayList<>();
 
-        if (StringUtils.hasText(type)) {
+        if (StringUtils.isNotBlank(type)) {
             String[] extensions = FILE_TYPE_EXTENSIONS.get(type.toLowerCase());
             if (extensions != null) {
                 for (String ext : extensions) {
@@ -247,7 +247,7 @@ public class GrepTool extends AbstractTool<GrepTool.Input> {
             }
         }
 
-        if (StringUtils.hasText(glob)) {
+        if (StringUtils.isNotBlank(glob)) {
             String globPattern = glob.startsWith("**/") ? glob : "**/" + glob;
             matchers.add(FileSystems.getDefault().getPathMatcher("glob:" + globPattern));
         }

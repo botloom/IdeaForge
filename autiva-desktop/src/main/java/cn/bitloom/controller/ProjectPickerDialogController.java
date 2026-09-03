@@ -13,7 +13,6 @@ import javafx.stage.DirectoryChooser;
 import javafx.stage.Stage;
 import lombok.Setter;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.stereotype.Component;
 
 import java.io.File;
 import java.net.URL;
@@ -26,7 +25,6 @@ import java.util.function.Consumer;
  * 项目选择对话框控制器
  */
 @Slf4j
-@Component
 public class ProjectPickerDialogController implements Initializable, WindowManager.StageAware, DialogHolder {
 
     @FXML

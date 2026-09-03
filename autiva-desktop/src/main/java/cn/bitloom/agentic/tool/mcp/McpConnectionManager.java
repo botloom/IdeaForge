@@ -1,6 +1,11 @@
 package cn.bitloom.agentic.tool.mcp;
 
 import cn.bitloom.util.JsonUtils;
+import cn.bitloom.harness.tool.ToolCallback;
+import cn.bitloom.harness.tool.ToolContext;
+import cn.bitloom.harness.tool.ToolDefinition;
+import cn.bitloom.harness.tool.ToolResult;
+import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.JsonNode;
 import io.modelcontextprotocol.client.McpClient;
 import io.modelcontextprotocol.client.McpSyncClient;
@@ -11,11 +16,7 @@ import io.modelcontextprotocol.json.McpJsonMapper;
 import io.modelcontextprotocol.json.jackson3.JacksonMcpJsonMapper;
 import io.modelcontextprotocol.spec.McpClientTransport;
 import io.modelcontextprotocol.spec.McpSchema;
-import jakarta.annotation.PreDestroy;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.ai.mcp.McpToolUtils;
-import org.springframework.ai.tool.ToolCallback;
-import org.springframework.stereotype.Component;
 
 import java.io.IOException;
 import java.nio.file.Files;
@@ -44,7 +45,6 @@ import java.util.concurrent.CopyOnWriteArrayList;
  * {@link McpToolUtils#getToolCallbacksFromSyncClients} 生成，clientInfo.name 即 server 名）。
  */
 @Slf4j
-@Component
 public class McpConnectionManager {
 
     private static final String AUTIVA_DIR = ".autiva";
@@ -151,7 +151,7 @@ public class McpConnectionManager {
 
         List<ToolCallback> callbacks;
         try {
-            callbacks = List.copyOf(McpToolUtils.getToolCallbacksFromSyncClients(List.of(client)));
+            callbacks = toToolCallbacks(client, name);
         } catch (Exception e) {
             closeQuietly(client);
             throw new IllegalStateException("MCP server 工具列表获取失败: " + name + " - " + e.getMessage(), e);
@@ -161,12 +161,96 @@ public class McpConnectionManager {
         disconnect(name);
         clients.put(name, client);
         toolCallbacks.put(name, callbacks);
-        callbacks.forEach(tc -> toolOwner.put(tc.getToolDefinition().name(), name));
+        callbacks.forEach(tc -> toolOwner.put(tc.definition().name(), name));
         log.info("[Mcp] 已连接 server: {} - 工具数: {}", name, callbacks.size());
 
         notifyChangeListeners();
         return new ConnectResult(name, callbacks.stream()
-                .map(tc -> tc.getToolDefinition().name()).toList());
+                .map(tc -> tc.definition().name()).toList());
+    }
+
+    /**
+     * 将 MCP sync client 的工具列表桥接为 harness {@link ToolCallback}。
+     * <p>
+     * 工具命名沿用 {@code mcp__{server}__{tool}} 规范（对齐原 Spring AI 命名，
+     * 供 McpHostPolicy 与 Toolkit.isMcpExempt 反查）。inputSchema 为 MCP 提供的
+     * {@code Map<String,Object>}，序列化为 JSON 字符串供模型消费。
+     */
+    private List<ToolCallback> toToolCallbacks(McpSyncClient client, String serverName) {
+        McpSchema.ListToolsResult toolsResult = client.listTools();
+        List<ToolCallback> callbacks = new ArrayList<>();
+        if (toolsResult.tools() == null) {
+            return callbacks;
+        }
+        for (McpSchema.Tool tool : toolsResult.tools()) {
+            String toolName = "mcp__" + serverName + "__" + tool.name();
+            String description = tool.description() != null ? tool.description() : tool.name();
+            String inputSchema = tool.inputSchema() != null
+                    ? JsonUtils.toJson(tool.inputSchema()) : "{}";
+            ToolDefinition definition = ToolDefinition.of(toolName, description, inputSchema);
+            callbacks.add(new McpToolCallback(client, tool.name(), definition));
+        }
+        return callbacks;
+    }
+
+    /** 提取 CallToolResult 的文本：优先 text content，无文本时回退到 structuredContent。 */
+    private static String extractToolResult(McpSchema.CallToolResult result) {
+        StringBuilder sb = new StringBuilder();
+        if (result.content() != null) {
+            for (McpSchema.Content content : result.content()) {
+                if (content instanceof McpSchema.TextContent tc && tc.text() != null) {
+                    sb.append(tc.text());
+                }
+            }
+        }
+        if (sb.isEmpty() && result.structuredContent() != null) {
+            return JsonUtils.toJson(result.structuredContent());
+        }
+        return sb.toString();
+    }
+
+    /**
+     * harness ToolCallback 桥接：把入参 JSON 解析为 Map 后转发给 MCP client.callTool。
+     */
+    private static final class McpToolCallback implements ToolCallback {
+        private final McpSyncClient client;
+        private final String mcpToolName;
+        private final ToolDefinition definition;
+
+        McpToolCallback(McpSyncClient client, String mcpToolName, ToolDefinition definition) {
+            this.client = client;
+            this.mcpToolName = mcpToolName;
+            this.definition = definition;
+        }
+
+        @Override
+        public ToolDefinition definition() {
+            return definition;
+        }
+
+        @Override
+        public String call(String inputJson, ToolContext context) throws Exception {
+            Map<String, Object> arguments = parseArguments(inputJson);
+            McpSchema.CallToolResult result = client.callTool(new McpSchema.CallToolRequest(mcpToolName, arguments));
+            String text = extractToolResult(result);
+            if (Boolean.TRUE.equals(result.isError())) {
+                return ToolResult.error("MCP 工具执行失败: " + mcpToolName, text).toJson();
+            }
+            return text == null || text.isBlank()
+                    ? ToolResult.success("(无输出)", Map.of()).toJson()
+                    : text;
+        }
+
+        private static Map<String, Object> parseArguments(String inputJson) {
+            if (inputJson == null || inputJson.isBlank()) {
+                return Map.of();
+            }
+            try {
+                return JsonUtils.fromJson(inputJson, new TypeReference<Map<String, Object>>() {});
+            } catch (Exception e) {
+                throw new IllegalStateException("MCP 工具入参解析失败: " + e.getMessage(), e);
+            }
+        }
     }
 
     /**
@@ -194,7 +278,7 @@ public class McpConnectionManager {
         McpSyncClient removed = clients.remove(name);
         List<ToolCallback> removedCallbacks = toolCallbacks.remove(name);
         if (removedCallbacks != null) {
-            removedCallbacks.forEach(tc -> toolOwner.remove(tc.getToolDefinition().name()));
+            removedCallbacks.forEach(tc -> toolOwner.remove(tc.definition().name()));
         }
         if (removed != null) {
             closeQuietly(removed);
@@ -233,7 +317,7 @@ public class McpConnectionManager {
         Map<String, List<String>> result = new LinkedHashMap<>();
         toolCallbacks.forEach((name, callbacks) ->
                 result.put(name, callbacks.stream()
-                        .map(tc -> tc.getToolDefinition().name()).toList()));
+                        .map(tc -> tc.definition().name()).toList()));
         return result;
     }
 
@@ -261,7 +345,7 @@ public class McpConnectionManager {
     private List<String> toolNamesOf(String name) {
         List<ToolCallback> callbacks = toolCallbacks.get(name);
         return callbacks == null ? List.of()
-                : callbacks.stream().map(tc -> tc.getToolDefinition().name()).toList();
+                : callbacks.stream().map(tc -> tc.definition().name()).toList();
     }
 
     private void closeQuietly(McpSyncClient client) {
@@ -272,7 +356,6 @@ public class McpConnectionManager {
         }
     }
 
-    @PreDestroy
     public void closeAll() {
         Set.copyOf(clients.keySet()).forEach(this::disconnect);
     }

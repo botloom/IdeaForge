@@ -10,14 +10,12 @@ import javafx.scene.control.TextField;
 import javafx.stage.Stage;
 import lombok.Getter;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.stereotype.Component;
 
 import java.net.URL;
 import java.util.function.Consumer;
 import java.util.ResourceBundle;
 
 @Slf4j
-@Component
 public class AgentInputDialogController implements WindowManager.StageAware, DialogHolder, Initializable {
 
     @FXML

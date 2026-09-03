@@ -2,12 +2,12 @@ package cn.bitloom.agentic.tool.task;
 
 import cn.bitloom.agentic.tool.task.repository.BackgroundTask;
 import cn.bitloom.agentic.tool.task.repository.TaskRepository;
-import cn.bitloom.agentic.tool.AbstractTool;
-import cn.bitloom.agentic.tool.ToolResult;
+import cn.bitloom.harness.tool.AbstractTool;
+import cn.bitloom.harness.tool.ToolResult;
 import org.jspecify.annotations.NonNull;
-import org.springframework.ai.chat.model.ToolContext;
-import org.springframework.ai.tool.annotation.ToolParam;
-import org.springframework.util.Assert;
+import cn.bitloom.harness.tool.ToolContext;
+import cn.bitloom.harness.tool.ToolParam;
+import cn.bitloom.util.Assert;
 
 import java.util.Map;
 

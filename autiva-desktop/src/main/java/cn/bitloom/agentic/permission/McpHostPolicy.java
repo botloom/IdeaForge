@@ -3,7 +3,6 @@ package cn.bitloom.agentic.permission;
 import cn.bitloom.util.JsonUtils;
 import com.fasterxml.jackson.databind.JsonNode;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.stereotype.Component;
 
 import java.io.IOException;
 import java.nio.file.Files;
@@ -30,7 +29,6 @@ import java.util.List;
  * <p>匹配优先级：精确 (server, tool) &gt; (server, "*") &gt; 默认 CONFIRM。
  */
 @Slf4j
-@Component
 public class McpHostPolicy {
 
     private static final String AUTIVA_DIR = ".autiva";

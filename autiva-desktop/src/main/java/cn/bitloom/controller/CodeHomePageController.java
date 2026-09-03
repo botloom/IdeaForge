@@ -18,7 +18,6 @@ import javafx.scene.control.MenuItem;
 import javafx.scene.control.SeparatorMenuItem;
 import javafx.scene.layout.VBox;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.stereotype.Component;
 
 import java.io.File;
 import java.util.ArrayList;
@@ -32,7 +31,6 @@ import java.util.List;
  * - 终端按钮配置
  */
 @Slf4j
-@Component
 public class CodeHomePageController extends AbstractHomePageController {
 
     @FXML

@@ -18,13 +18,13 @@ package cn.bitloom.agentic.session;
 
 import java.util.UUID;
 
-import org.springframework.ai.chat.client.ChatClientRequest;
-import org.springframework.ai.chat.messages.Message;
 import cn.bitloom.agentic.event.MessageEvent;
+import cn.bitloom.harness.llm.ChatMessage;
+import cn.bitloom.harness.loop.LoopContext;
 
 /**
- * Derives the {@link MessageEvent#getId()} used when {@link SessionMemoryAdvisor#before}
- * persists the current user (or tool-response) message.
+ * Derives the {@link MessageEvent#getId()} used when
+ * {@code SessionMemoryInterceptor} persists the current user (or tool-response) message.
  *
  * <p>
  * The default, {@link #random()}, reproduces the id-less behaviour
@@ -35,15 +35,15 @@ import cn.bitloom.agentic.event.MessageEvent;
  * an idempotent no-op instead of a duplicate, via
  * {@code SessionRepository.appendEvent}'s id-based replay contract.
  *
- * @see SessionEventResponseIdGenerator the counterpart used in {@link SessionMemoryAdvisor#after}
+ * @see SessionEventResponseIdGenerator the counterpart used for assistant replies
  */
 @FunctionalInterface
 public interface SessionEventRequestIdGenerator {
 
-	String generate(ChatClientRequest request, Message message);
+	String generate(LoopContext ctx, ChatMessage message);
 
 	static SessionEventRequestIdGenerator random() {
-		return (request, message) -> UUID.randomUUID().toString();
+		return (ctx, message) -> UUID.randomUUID().toString();
 	}
 
 }

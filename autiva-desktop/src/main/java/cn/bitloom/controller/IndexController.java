@@ -19,8 +19,6 @@ import javafx.scene.layout.VBox;
 import javafx.scene.paint.Color;
 import lombok.Getter;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.context.annotation.Lazy;
-import org.springframework.stereotype.Component;
 
 import java.net.URI;
 import java.net.URL;
@@ -30,7 +28,6 @@ import java.util.function.DoubleConsumer;
 import java.util.function.DoubleSupplier;
 
 @Slf4j
-@Component
 public class IndexController implements Initializable {
 
     @FXML
@@ -55,8 +52,7 @@ public class IndexController implements Initializable {
     @FXML
     private VBox editorPanelSlot;
 
-    @Getter
-    private final Router router;
+    private Router router;
     private final HomePageRouter homePageRouter;
 
     /** 拖拽条固定宽度（像素）：命中区宽度，足够宽以便轻松触发，又不明显挤占内容空间 */
@@ -80,9 +76,12 @@ public class IndexController implements Initializable {
     /** 用户是否手动拖拽过编辑器宽度（未拖拽时每次挂载按窗口比例重算） */
     private boolean editorWidthCustomized = false;
 
-    public IndexController(@Lazy Router router, HomePageRouter homePageRouter) {
-        this.router = router;
+    public IndexController(HomePageRouter homePageRouter) {
         this.homePageRouter = homePageRouter;
+    }
+
+    public void setRouter(Router router) {
+        this.router = router;
     }
 
     @Override

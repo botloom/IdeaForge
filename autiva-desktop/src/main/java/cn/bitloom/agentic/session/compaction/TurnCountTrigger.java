@@ -16,7 +16,7 @@
 
 package cn.bitloom.agentic.session.compaction;
 
-import org.springframework.util.Assert;
+import cn.bitloom.util.Assert;
 
 /**
  * Triggers compaction when the session exceeds a maximum number of <em>turns</em>.

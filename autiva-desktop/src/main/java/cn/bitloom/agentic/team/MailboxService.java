@@ -4,8 +4,7 @@ import cn.bitloom.agentic.event.MessageEvent;
 import cn.bitloom.agentic.session.EventFilter;
 import cn.bitloom.agentic.session.FileSystemSessionManager;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.ai.chat.messages.UserMessage;
-import org.springframework.stereotype.Component;
+import cn.bitloom.harness.llm.ChatMessage;
 
 import java.util.HashMap;
 import java.util.List;
@@ -23,7 +22,6 @@ import java.util.Map;
  * 邮件始终保留在队友的 branch 上下文中。
  */
 @Slf4j
-@Component
 public class MailboxService {
 
     public static final String METADATA_MAILBOX = "mailbox";
@@ -47,7 +45,7 @@ public class MailboxService {
         MessageEvent message = MessageEvent.builder()
                 .sessionId(sessionId)
                 .branch("teammate." + teammateName)
-                .message(new UserMessage(wrap(from, text)))
+                .message(ChatMessage.user(wrap(from, text)))
                 .metadata(metadata)
                 .build();
         sessionManager.appendEvent(message);
@@ -64,7 +62,7 @@ public class MailboxService {
         metadata.put(METADATA_TO, LEAD_ADDRESS);
         MessageEvent message = MessageEvent.builder()
                 .sessionId(sessionId)
-                .message(new UserMessage(wrap(from, text)))
+                .message(ChatMessage.user(wrap(from, text)))
                 .metadata(metadata)
                 .build();
         sessionManager.appendEvent(message);

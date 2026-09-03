@@ -10,7 +10,7 @@ import java.util.Comparator;
 import java.util.List;
 import java.util.stream.Stream;
 
-import org.springframework.util.StringUtils;
+import org.apache.commons.lang3.StringUtils;
 
 /**
  * 基于 {@link AgentMemoryStore} 的文件系统实现。
@@ -157,7 +157,7 @@ public class FileSystemAgentMemoryStore implements AgentMemoryStore {
      * </ul>
      */
     private Path resolveSafePath(String relativePath) {
-        if (!StringUtils.hasText(relativePath) || relativePath.equals("/")) {
+        if (!StringUtils.isNotBlank(relativePath) || relativePath.equals("/")) {
             return this.memoriesDir;
         }
         Path userPath = Paths.get(relativePath);

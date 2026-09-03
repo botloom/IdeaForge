@@ -12,8 +12,6 @@ import javafx.scene.layout.VBox;
 import lombok.Getter;
 import lombok.Setter;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.context.annotation.Primary;
-import org.springframework.stereotype.Component;
 
 import java.net.URL;
 import java.nio.file.Path;
@@ -28,8 +26,6 @@ import java.util.function.Consumer;
  * 目前仅保留"文件内容"视图，以独立卡片形式展示，内部使用 {@link SubTabContainer} 支持多实例子 tab。
  */
 @Slf4j
-@Component
-@Primary
 public class EditorPanelController implements Initializable {
 
     public enum ViewType { FILE, TODO }

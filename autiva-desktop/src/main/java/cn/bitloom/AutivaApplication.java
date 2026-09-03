@@ -20,9 +20,6 @@ import javafx.stage.Popup;
 import javafx.stage.Stage;
 import javafx.stage.StageStyle;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.boot.SpringApplication;
-import org.springframework.boot.autoconfigure.SpringBootApplication;
-import org.springframework.context.ConfigurableApplicationContext;
 
 import javax.swing.*;
 import java.awt.*;
@@ -30,10 +27,9 @@ import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 
 @Slf4j
-@SpringBootApplication
 public class AutivaApplication extends Application {
 
-    private ConfigurableApplicationContext springContext;
+    private App app;
     private TrayIcon trayIcon;
     private Popup trayPopup;
     private Stage hiddenOwner;
@@ -60,7 +56,7 @@ public class AutivaApplication extends Application {
         Thread loadingThread = new Thread(() -> {
             try {
                 AppBootstrap.initialize();
-                springContext = SpringApplication.run(AutivaApplication.class);
+                app = new App();
             } catch (Exception e) {
                 log.error("启动失败", e);
                 Platform.exit();
@@ -70,7 +66,7 @@ public class AutivaApplication extends Application {
             Platform.runLater(() -> {
                 try {
                     FXMLLoader loader = new FXMLLoader(getClass().getResource(AppConstants.Stage.FXML));
-                    loader.setControllerFactory(springContext::getBean);
+                    loader.setControllerFactory(app.controllerFactory());
                     Scene mainScene = new Scene(loader.load(), AppConstants.Stage.WIDTH, AppConstants.Stage.HEIGHT);
 
                     splash.close();
@@ -107,8 +103,8 @@ public class AutivaApplication extends Application {
     public void stop() {
         removeTrayIcon();
         ExecutorManager.close();
-        if (springContext != null) {
-            springContext.close();
+        if (app != null) {
+            app.shutdown();
         }
         System.exit(0);
     }

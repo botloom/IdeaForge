@@ -42,7 +42,6 @@ import lombok.Getter;
 import lombok.RequiredArgsConstructor;
 import lombok.Setter;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.stereotype.Component;
 
 import java.io.IOException;
 import java.net.URL;
@@ -53,7 +52,6 @@ import java.util.*;
 import java.util.stream.Stream;
 
 @Slf4j
-@Component
 @RequiredArgsConstructor
 public class SideBarController implements Initializable, PageHolder {
 
@@ -928,7 +926,6 @@ public class SideBarController implements Initializable, PageHolder {
     }
 
     /** 应用关闭时释放 Git 状态后台计算线程 */
-    @jakarta.annotation.PreDestroy
     public void destroy() {
         statusExecutor.shutdownNow();
     }

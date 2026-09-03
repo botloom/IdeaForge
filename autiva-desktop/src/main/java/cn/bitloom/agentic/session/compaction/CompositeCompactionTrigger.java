@@ -19,7 +19,7 @@ package cn.bitloom.agentic.session.compaction;
 import java.util.Arrays;
 import java.util.List;
 
-import org.springframework.util.Assert;
+import cn.bitloom.util.Assert;
 
 /**
  * A {@link CompactionTrigger} that fires when <em>any</em> of its composed triggers fires

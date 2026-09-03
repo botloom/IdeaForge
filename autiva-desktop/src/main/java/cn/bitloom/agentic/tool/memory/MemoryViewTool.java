@@ -5,13 +5,13 @@ import java.util.List;
 
 import org.jspecify.annotations.NonNull;
 import org.jspecify.annotations.Nullable;
-import org.springframework.ai.chat.model.ToolContext;
-import org.springframework.ai.tool.annotation.ToolParam;
-import org.springframework.util.StringUtils;
+import cn.bitloom.harness.tool.ToolContext;
+import cn.bitloom.harness.tool.ToolParam;
+import org.apache.commons.lang3.StringUtils;
 
 import cn.bitloom.agentic.memory.AgentMemoryStore;
-import cn.bitloom.agentic.tool.AbstractTool;
-import cn.bitloom.agentic.tool.ToolResult;
+import cn.bitloom.harness.tool.AbstractTool;
+import cn.bitloom.harness.tool.ToolResult;
 
 /**
  * 记忆查看工具，查看持久记忆存储中文件的内容或列出目录的内容。
@@ -35,7 +35,7 @@ public class MemoryViewTool extends AbstractTool<MemoryViewTool.Input> {
 	@Override
 	public @NonNull ToolResult execute(@NonNull Input input, @Nullable ToolContext context) {
 		try {
-			String path = StringUtils.hasText(input.path()) ? input.path() : "/";
+			String path = StringUtils.isNotBlank(input.path()) ? input.path() : "/";
 
 			if (!store.exists(path)) {
 				return ToolResult.error("错误：路径不存在：" + input.path());
@@ -87,7 +87,7 @@ public class MemoryViewTool extends AbstractTool<MemoryViewTool.Input> {
 		int startLine = 1;
 		int endLine = totalLines;
 
-		if (StringUtils.hasText(viewRange)) {
+		if (StringUtils.isNotBlank(viewRange)) {
 			String[] parts = viewRange.split(",");
 			if (parts.length == 2) {
 				try {

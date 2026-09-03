@@ -19,9 +19,7 @@ package cn.bitloom.agentic.session.compaction;
 import java.util.List;
 import java.util.stream.Collectors;
 
-import org.springframework.ai.chat.messages.AssistantMessage;
-import org.springframework.ai.chat.messages.MessageType;
-import org.springframework.ai.chat.messages.ToolResponseMessage;
+import cn.bitloom.harness.llm.Role;
 import cn.bitloom.agentic.event.MessageEvent;
 
 /**
@@ -59,31 +57,33 @@ public final class CompactionUtils {
 			case TOOL -> "Tool";
 		};
 
-		if (event.getMessage() instanceof AssistantMessage am && am.hasToolCalls()) {
-			String calls = am.getToolCalls()
+		if (event.getMessage() != null && event.getMessage().getRole() == Role.ASSISTANT
+				&& event.getMessage().hasToolCalls()) {
+			String calls = event.getMessage().getToolCalls()
 				.stream()
 				.map(tc -> tc.name() + "(" + tc.arguments() + ")")
 				.collect(Collectors.joining(", "));
-			String text = am.getText();
+			String text = event.getMessage().getText();
 			return (text != null && !text.isBlank()) ? role + ": " + text + " [tool calls: " + calls + "]"
 					: role + " [tool calls: " + calls + "]";
 		}
 
-		if (event.getMessage() instanceof ToolResponseMessage trm) {
-			String responses = trm.getResponses()
+		if (event.getMessage() != null && event.getMessage().getRole() == Role.TOOL
+				&& event.getMessage().getToolResults() != null) {
+			String responses = event.getMessage().getToolResults()
 				.stream()
-				.map(r -> r.name() + " -> " + r.responseData())
+				.map(r -> r.name() + " -> " + r.content())
 				.collect(Collectors.joining(", "));
 			return role + " [responses: " + responses + "]";
 		}
 
-		String text = event.getMessage().getText();
+		String text = event.getMessage() != null ? event.getMessage().getText() : null;
 		return role + ": " + (text != null ? text : "[no text content]");
 	}
 
 	/**
 	 * Advances {@code rawCutIndex} forward until it points to a root-level (null-branch)
-	 * {@link MessageType#USER} event, or to {@code real.size()} if no such event exists.
+	 * {@link Role#USER} event, or to {@code real.size()} if no such event exists.
 	 *
 	 * <p>
 	 * Compaction strategies compute a raw cut point (the index into the real-event list
@@ -99,7 +99,7 @@ public final class CompactionUtils {
 	static int snapToTurnStart(List<MessageEvent> real, int rawCutIndex) {
 		int idx = rawCutIndex;
 		while (idx < real.size()
-				&& !(real.get(idx).isRootEvent() && real.get(idx).getMessageType() == MessageType.USER)) {
+				&& !(real.get(idx).isRootEvent() && real.get(idx).getMessageType() == Role.USER)) {
 			idx++;
 		}
 		return idx;

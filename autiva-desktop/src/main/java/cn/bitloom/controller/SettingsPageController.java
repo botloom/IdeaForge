@@ -31,19 +31,16 @@ import javafx.stage.Stage;
 import lombok.Getter;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.context.ApplicationContext;
-import org.springframework.stereotype.Component;
 
 import java.net.URL;
 import java.util.ResourceBundle;
 
 @Slf4j
-@Component
 @RequiredArgsConstructor
 public class SettingsPageController implements Initializable, WindowManager.StageAware, DialogHolder {
 
     private final SettingsPageViewModel viewModel;
-    private final ApplicationContext applicationContext;
+    private final WechatILinkClient wechatILinkClient;
     private final WindowManager windowManager;
 
     @FXML
@@ -221,7 +218,7 @@ public class SettingsPageController implements Initializable, WindowManager.Stag
     private void updateWeixinStatus() {
         if (weixinStateListener != null) {
             try {
-                WechatILinkClient oldClient = applicationContext.getBean(WechatILinkClient.class);
+                WechatILinkClient oldClient = wechatILinkClient;
                 oldClient.stateProperty().removeListener(weixinStateListener);
             } catch (Exception ignored) {
             }
@@ -229,7 +226,7 @@ public class SettingsPageController implements Initializable, WindowManager.Stag
         }
 
         try {
-            WechatILinkClient client = applicationContext.getBean(WechatILinkClient.class);
+            WechatILinkClient client = wechatILinkClient;
             updateWeixinUi(client.getState(), client);
 
             weixinStateListener = (obs, oldVal, newVal) ->

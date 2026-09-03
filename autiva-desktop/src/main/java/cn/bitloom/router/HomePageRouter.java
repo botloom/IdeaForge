@@ -16,9 +16,7 @@ import javafx.scene.layout.Region;
 import javafx.scene.layout.VBox;
 import lombok.Getter;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.context.ApplicationContext;
-import org.springframework.core.io.ClassPathResource;
-import org.springframework.stereotype.Component;
+import javafx.util.Callback;
 
 /**
  * 首页与编辑器面板的模式路由器。
@@ -33,10 +31,9 @@ import org.springframework.stereotype.Component;
  * 非活跃 viewModel 通过 dispose() 取消事件订阅，避免重复处理。
  */
 @Slf4j
-@Component
 public class HomePageRouter {
 
-    private final ApplicationContext applicationContext;
+    private final Callback<Class<?>, Object> controllerFactory;
     private final ToolUIBridge toolUIBridge;
 
     @Getter
@@ -58,8 +55,8 @@ public class HomePageRouter {
     private VBox editorPanelSlot;
     private AgentMode currentMode = null;
 
-    public HomePageRouter(ApplicationContext applicationContext, ToolUIBridge toolUIBridge) {
-        this.applicationContext = applicationContext;
+    public HomePageRouter(Callback<Class<?>, Object> controllerFactory, ToolUIBridge toolUIBridge) {
+        this.controllerFactory = controllerFactory;
         this.toolUIBridge = toolUIBridge;
     }
 
@@ -111,8 +108,8 @@ public class HomePageRouter {
      * FXMLLoader 会将 controller 实例存入 root 的 UserData。
      */
     private Region loadFxml(String path) throws Exception {
-        FXMLLoader loader = new FXMLLoader(new ClassPathResource(path).getURL());
-        loader.setControllerFactory(applicationContext::getBean);
+        FXMLLoader loader = new FXMLLoader(getClass().getResource("/" + path));
+        loader.setControllerFactory(controllerFactory);
         Region root = loader.load();
         root.setUserData(loader.getController());
         return root;

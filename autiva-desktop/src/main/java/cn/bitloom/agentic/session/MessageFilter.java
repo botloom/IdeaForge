@@ -18,14 +18,12 @@ package cn.bitloom.agentic.session;
 
 import java.util.Set;
 
-import org.springframework.ai.chat.messages.AssistantMessage;
-import org.springframework.ai.chat.messages.Message;
-import org.springframework.ai.chat.messages.MessageType;
-import org.springframework.util.Assert;
-import org.springframework.util.CollectionUtils;
+import cn.bitloom.harness.llm.ChatMessage;
+import cn.bitloom.harness.llm.Role;
+import cn.bitloom.util.Assert;
 
 /**
- * Decides which {@link Message}s get appended (persisted) to session memory.
+ * Decides which {@link ChatMessage}s get appended (persisted) to session memory.
  *
  * <p>
  * This is the write-side counterpart of {@link EventFilter}: an {@code EventFilter}
@@ -34,17 +32,13 @@ import org.springframework.util.CollectionUtils;
  * this filter is never persisted and therefore never replayed on later requests.
  *
  * <p>
- * Filters can consider the message type as well as the message content, and compose via
+ * Filters can consider the message role as well as the message content, and compose via
  * {@link #and(MessageFilter)}, {@link #or(MessageFilter)} and {@link #negate()}:
  *
  * <pre>{@code
- * MessageFilter filter = MessageFilter.byMessageType(MessageType.USER, MessageType.ASSISTANT)
+ * MessageFilter filter = MessageFilter.byMessageType(Role.USER, Role.ASSISTANT)
  *     .and(MessageFilter.skipEmptyMessages());
  * }</pre>
- *
- * @author Sukhrob Tokhirov
- * @since 2.0.0
- * @see cn.bitloom.agentic.session.SessionMemoryAdvisor.Builder#messageFilter(MessageFilter)
  */
 @FunctionalInterface
 public interface MessageFilter {
@@ -53,7 +47,7 @@ public interface MessageFilter {
 	 * Returns {@code true} if the given message should be appended to session memory.
 	 * @param message the message about to be persisted
 	 */
-	boolean shouldPersist(Message message);
+	boolean shouldPersist(ChatMessage message);
 
 	/**
 	 * Returns a composed filter that persists a message only if both this filter and
@@ -84,31 +78,24 @@ public interface MessageFilter {
 	}
 
 	/**
-	 * Skips {@link AssistantMessage}s that carry no content — blank or {@code null}
-	 * text, no tool calls, and no media. Some models emit such empty frames (e.g. AWS
-	 * Bedrock Converse produces an empty {@code end_turn} frame after a tool-call
-	 * sequence) and reject them when replayed as history on the next request. All other
-	 * message types are persisted unconditionally.
-	 *
-	 * <p>
-	 * This is the default filter of
-	 * {@link cn.bitloom.agentic.session.SessionMemoryAdvisor}.
+	 * Skips ASSISTANT 消息中无内容者 — 空白/null 文本且无工具调用。
+	 * 某些模型会输出这种空帧，回放为历史时会被 API 拒绝；其余角色无条件持久化。
 	 */
 	static MessageFilter skipEmptyMessages() {
-		return message -> !(message instanceof AssistantMessage am
-				&& (am.getText() == null || am.getText().isBlank()) && !am.hasToolCalls()
-				&& CollectionUtils.isEmpty(am.getMedia()));
+		return message -> !(message.getRole() == Role.ASSISTANT
+				&& (message.getText() == null || message.getText().isBlank())
+				&& !message.hasToolCalls());
 	}
 
 	/**
-	 * Persists only messages whose {@link Message#getMessageType()} is among the given
-	 * types.
-	 * @param types the message types to persist; must not be empty
+	 * Persists only messages whose {@link ChatMessage#getRole()} is among the given
+	 * roles.
+	 * @param roles the message roles to persist; must not be empty
 	 */
-	static MessageFilter byMessageType(MessageType... types) {
-		Assert.notEmpty(types, "types must not be empty");
-		Set<MessageType> typeSet = Set.of(types);
-		return message -> typeSet.contains(message.getMessageType());
+	static MessageFilter byMessageType(Role... roles) {
+		Assert.notEmpty(roles, "types must not be empty");
+		Set<Role> roleSet = Set.of(roles);
+		return message -> message.getRole() != null && roleSet.contains(message.getRole());
 	}
 
 	/**

@@ -43,6 +43,7 @@ public class ApprovalCard extends VBox {
         String action = getString(node, "action");
 
         boolean isFile = "FILE".equalsIgnoreCase(operation);
+        boolean isPlugin = "PLUGIN".equalsIgnoreCase(operation);
         boolean isDestructive = "DESTRUCTIVE".equalsIgnoreCase(commandClass);
 
         // ===== 标题行：图标 + 标题 + 风险标签 =====
@@ -55,7 +56,7 @@ public class ApprovalCard extends VBox {
             iconLabel.getStyleClass().add("approval-card__icon--danger");
         }
 
-        Label titleLabel = new Label(isFile ? "文件操作批准" : "命令批准");
+        Label titleLabel = new Label(isPlugin ? "插件挂载批准" : isFile ? "文件操作批准" : "命令批准");
         titleLabel.getStyleClass().add("approval-card__title");
 
         Region spacer = new Region();
@@ -66,6 +67,9 @@ public class ApprovalCard extends VBox {
         if (isDestructive) {
             riskTag.setText("破坏性");
             riskTag.getStyleClass().add("approval-card__risk-tag--danger");
+        } else if (isPlugin) {
+            riskTag.setText("能力变更");
+            riskTag.getStyleClass().add("approval-card__risk-tag--warn");
         } else {
             riskTag.setText("写操作");
             riskTag.getStyleClass().add("approval-card__risk-tag--warn");
@@ -78,8 +82,8 @@ public class ApprovalCard extends VBox {
         VBox body = new VBox(4);
         body.getStyleClass().add("approval-card__body");
 
-        if (isFile) {
-            // 文件操作：工具名 + 动作 + 文件路径
+        if (isFile || isPlugin) {
+            // 文件操作 / 插件操作：工具名 + 动作 + 目标（文件路径或插件摘要）
             HBox metaRow = new HBox(12);
             metaRow.getStyleClass().add("approval-card__meta-row");
             if (toolName != null && !toolName.isBlank()) {
@@ -95,7 +99,15 @@ public class ApprovalCard extends VBox {
             if (!metaRow.getChildren().isEmpty()) {
                 body.getChildren().add(metaRow);
             }
-            if (filePath != null && !filePath.isBlank()) {
+            if (isPlugin) {
+                // 插件摘要（名称/作用域/工具清单，复用 command 字段传输）
+                if (command != null && !command.isBlank()) {
+                    Label summaryLabel = new Label(command);
+                    summaryLabel.getStyleClass().add("approval-card__code");
+                    summaryLabel.setWrapText(true);
+                    body.getChildren().add(summaryLabel);
+                }
+            } else if (filePath != null && !filePath.isBlank()) {
                 Label pathLabel = new Label(filePath);
                 pathLabel.getStyleClass().add("approval-card__code");
                 pathLabel.setWrapText(true);

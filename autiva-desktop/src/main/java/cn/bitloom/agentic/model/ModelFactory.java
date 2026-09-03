@@ -1,21 +1,17 @@
 package cn.bitloom.agentic.model;
 
 import cn.bitloom.config.ConfigManager;
+import cn.bitloom.harness.llm.ChatModel;
+import cn.bitloom.harness.llm.ChatOptions;
+import cn.bitloom.harness.llm.OpenAiCompatChatModel;
 import lombok.RequiredArgsConstructor;
-import org.springframework.ai.chat.model.ChatModel;
-import org.springframework.ai.openai.OpenAiChatModel;
-import org.springframework.ai.openai.OpenAiChatOptions;
-import org.springframework.stereotype.Component;
 
-import java.time.Duration;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
-@Component
 @RequiredArgsConstructor
 public class ModelFactory {
-
     private final ConfigManager configManager;
     /** id → ChatModel 缓存（配置更新时失效重建） */
     private final Map<String, ChatModel> cache = new ConcurrentHashMap<>();
@@ -42,18 +38,11 @@ public class ModelFactory {
     }
 
     private ChatModel build(ModelConfig config) {
-        return OpenAiChatModel.builder()
-                .options(
-                        OpenAiChatOptions.builder()
-                                .baseUrl(config.baseUrl())
-                                .apiKey(config.apiKey())
-                                .model(config.chatModel())
-                                .extraBody(Map.of("thinking", Map.of("type", "enabled")))
-                                .timeout(Duration.ZERO)
-                                .maxRetries(3)
-                                .build()
-                )
-                .build();
+        ChatOptions defaults = new ChatOptions(
+                config.chatModel(), null, null, Map.of("thinking", Map.of("type", "enabled")));
+        return new OpenAiCompatChatModel(
+                config.baseUrl(), config.apiKey(), config.chatModel(),
+                config.completionsPath(), defaults);
     }
 
 }

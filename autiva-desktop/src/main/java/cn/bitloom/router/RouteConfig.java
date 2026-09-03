@@ -3,14 +3,12 @@ package cn.bitloom.router;
 import cn.bitloom.controller.*;
 import cn.bitloom.holder.PageHolder;
 import lombok.Getter;
-import org.springframework.stereotype.Component;
 
 import java.util.HashMap;
 import java.util.Map;
 import java.util.function.Consumer;
 
 @Getter
-@Component
 public class RouteConfig {
 
     public static class Path {

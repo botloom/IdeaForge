@@ -50,7 +50,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.fxmisc.flowless.Cell;
 import org.fxmisc.flowless.VirtualFlow;
 import org.fxmisc.flowless.VirtualizedScrollPane;
-import org.springframework.ai.chat.messages.MessageType;
+import cn.bitloom.harness.llm.Role;
 
 import java.io.File;
 import java.net.URL;
@@ -457,7 +457,7 @@ public abstract class AbstractHomePageController implements Initializable, Butto
      * AI 侧消息占满整个可用区域，无宽度限制；用户消息保留气泡宽度。
      */
     private HBox buildMessageRow(MessageCard card) {
-        if (card.getMessageType() == MessageType.USER) {
+        if (card.getMessageType() == Role.USER) {
             card.maxWidthProperty().bind(
                     Bindings.max(100, chatScrollPane.widthProperty().subtract(32).multiply(0.75))
             );
@@ -503,7 +503,7 @@ public abstract class AbstractHomePageController implements Initializable, Butto
             }
             // AI 行无水平缩进占满区域；用户行保留水平留白（气泡与窗口边缘间距）
             container.getStyleClass().add(
-                    card.getMessageType() == MessageType.USER ? "chat-list-cell--user" : "chat-list-cell--assistant");
+                    card.getMessageType() == Role.USER ? "chat-list-cell--user" : "chat-list-cell--assistant");
             if (card instanceof NodeMessageCard nmc) {
                 Node node = nmc.getNode();
                 if (node instanceof Region region) {
@@ -560,12 +560,12 @@ public abstract class AbstractHomePageController implements Initializable, Butto
         this.getViewModel().addNodeMessage(sessionId, node);
     }
 
-    private HBox createMessageRow(Node card, MessageType type) {
+    private HBox createMessageRow(Node card, Role type) {
         HBox row = new HBox();
         row.getStyleClass().add("chat-row");
         row.setMaxWidth(Double.MAX_VALUE);
 
-        if (type == MessageType.USER) {
+        if (type == Role.USER) {
             row.setAlignment(Pos.CENTER_RIGHT);
             Region spacer = new Region();
             HBox.setHgrow(spacer, Priority.ALWAYS);

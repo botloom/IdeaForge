@@ -2,14 +2,12 @@ package cn.bitloom.bootstrap;
 
 import cn.bitloom.constant.AppConstants;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.core.io.Resource;
-import org.springframework.core.io.support.PathMatchingResourcePatternResolver;
 
 import java.io.IOException;
+import java.io.InputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
-import java.util.Objects;
 
 /**
  * 应用启动初始化，按照新的目录结构组织：
@@ -19,9 +17,15 @@ import java.util.Objects;
  * ├── subagents/
  * ├── workspace/{work,code}/
  * └── skills/
+ *
+ * <p>classpath 资源复制用 JDK {@link Class#getResourceAsStream}（无 Spring 依赖）；
+ * 引导资源为固定清单（bootstrap/ 下已知文件），显式列出文件名复制。
  */
 @Slf4j
 public class AppBootstrap {
+
+    /** 内置子智能体名清单（对应 bootstrap/subagent/{name}/agent.md） */
+    private static final String[] SUBAGENTS = {"explore", "general", "plan", "review"};
 
     private AppBootstrap() {
     }
@@ -95,9 +99,7 @@ public class AppBootstrap {
         if (Files.exists(settingsFile)) {
             return;
         }
-        PathMatchingResourcePatternResolver resolver = new PathMatchingResourcePatternResolver();
-        Resource configResource = resolver.getResource("classpath:bootstrap/settings.yaml");
-        Files.copy(configResource.getInputStream(), settingsFile, StandardCopyOption.REPLACE_EXISTING);
+        copyIfAbsent("/bootstrap/settings.yaml", settingsFile);
     }
 
     /**
@@ -109,7 +111,8 @@ public class AppBootstrap {
             return;
         }
         Files.createDirectories(agentDir);
-        copyClasspathResources("classpath:bootstrap/agent/work/*", agentDir);
+        copyIfAbsent("/bootstrap/agent/work/agent.md", agentDir.resolve("agent.md"));
+        copyIfAbsent("/bootstrap/agent/work/config.json", agentDir.resolve("config.json"));
     }
 
     /**
@@ -120,25 +123,23 @@ public class AppBootstrap {
         if (!Files.exists(agentDir)) {
             Files.createDirectories(agentDir);
         }
-        copyClasspathResources("classpath:bootstrap/agent/code/*", agentDir);
+        copyIfAbsent("/bootstrap/agent/code/agent.md", agentDir.resolve("agent.md"));
+        copyIfAbsent("/bootstrap/agent/code/config.json", agentDir.resolve("config.json"));
     }
 
     /**
-     * 初始化子智能体（从 classpath:bootstrap/subagent/ 下所有 agent.md 复制到 ~/.autiva/subagents/{name}/agent.md）
-     * 首次启动复制，已存在则跳过
+     * 初始化子智能体（从 classpath:bootstrap/subagent/{name}/agent.md 复制到
+     * ~/.autiva/subagents/{name}/agent.md）。首次启动复制，已存在则跳过。
      */
     private static void initSubagents() throws IOException {
-        PathMatchingResourcePatternResolver resolver = new PathMatchingResourcePatternResolver();
-        Resource[] resources = resolver.getResources("classpath:bootstrap/subagent/*/agent.md");
-        for (Resource resource : resources) {
-            String subagentName = extractDirName(resource, "bootstrap/subagent");
-            if (subagentName == null) continue;
+        for (String subagentName : SUBAGENTS) {
             Path targetDir = AppConstants.Agents.subagentDir(subagentName);
             if (Files.exists(targetDir.resolve("agent.md"))) {
                 continue;
             }
             Files.createDirectories(targetDir);
-            Files.copy(resource.getInputStream(), targetDir.resolve("agent.md"), StandardCopyOption.REPLACE_EXISTING);
+            copyIfAbsent("/bootstrap/subagent/" + subagentName + "/agent.md",
+                    targetDir.resolve("agent.md"));
             log.info("复制子智能体: {}", subagentName);
         }
     }
@@ -153,9 +154,7 @@ public class AppBootstrap {
             return;
         }
         Files.createDirectories(memoryDir);
-        PathMatchingResourcePatternResolver resolver = new PathMatchingResourcePatternResolver();
-        Resource template = resolver.getResource("classpath:bootstrap/memory-template.md");
-        Files.copy(template.getInputStream(), memoryFile, StandardCopyOption.REPLACE_EXISTING);
+        copyIfAbsent("/bootstrap/memory-template.md", memoryFile);
     }
 
     /**
@@ -167,37 +166,17 @@ public class AppBootstrap {
         }
     }
 
-    /**
-     * 从 classpath 复制资源到目标目录（已存在的文件跳过）
-     */
-    private static void copyClasspathResources(String pattern, Path targetDir) throws IOException {
-        PathMatchingResourcePatternResolver resolver = new PathMatchingResourcePatternResolver();
-        Resource[] resources = resolver.getResources(pattern);
-        for (Resource resource : resources) {
-            if (Objects.isNull(resource.getFilename())) {
-                continue;
-            }
-            Path target = targetDir.resolve(resource.getFilename());
-            if (Files.exists(target)) {
-                continue;
-            }
-            Files.copy(resource.getInputStream(), target, StandardCopyOption.REPLACE_EXISTING);
+    /** 从 classpath 复制资源到目标路径（目标已存在则跳过）。 */
+    private static void copyIfAbsent(String classpathResource, Path target) throws IOException {
+        if (Files.exists(target)) {
+            return;
         }
-    }
-
-    /**
-     * 从 Resource URL 中提取目录名（如 subagent/doctor/agent.md → doctor）
-     */
-    private static String extractDirName(Resource resource, String prefix) {
-        try {
-            String url = resource.getURL().toString();
-            int idx = url.indexOf(prefix + "/");
-            if (idx < 0) return null;
-            String after = url.substring(idx + prefix.length() + 1);
-            int slash = after.indexOf("/");
-            return slash > 0 ? after.substring(0, slash) : null;
-        } catch (IOException e) {
-            return null;
+        try (InputStream in = AppBootstrap.class.getResourceAsStream(classpathResource)) {
+            if (in == null) {
+                log.warn("classpath 资源不存在: {}", classpathResource);
+                return;
+            }
+            Files.copy(in, target, StandardCopyOption.REPLACE_EXISTING);
         }
     }
 

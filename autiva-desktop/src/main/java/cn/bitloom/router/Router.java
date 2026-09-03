@@ -4,22 +4,19 @@ import cn.bitloom.holder.ButtonBarHolder;
 import cn.bitloom.controller.IndexController;
 import cn.bitloom.store.Store;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.context.annotation.Lazy;
-import org.springframework.stereotype.Component;
 
 import java.util.HashMap;
 import java.util.Map;
 import java.util.function.Function;
 
 @Slf4j
-@Component
 public class Router {
 
     private final IndexController indexController;
     private final RouteConfig routeConfig;
     private final Map<String, Function<IndexController, ButtonBarHolder>> buttonBarHolderMap;
 
-    public Router(@Lazy IndexController indexController, RouteConfig routeConfig) {
+    public Router(IndexController indexController, RouteConfig routeConfig) {
         this.indexController = indexController;
         this.routeConfig = routeConfig;
         this.routeConfig.init();
